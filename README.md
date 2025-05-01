@@ -190,14 +190,3 @@ For optimal performance and minimal UDP jitter, the following **manual** adjustm
    - **Benefit:** Ensures the PCIe bus remains fully powered and avoids link power-saving transitions.
 
 Implementing these manual Device Manager tweaks alongside the automated script will deliver the lowest possible UDP latency and jitter on the ASUS XG-C100C V2.
-
-## References
-
-1. Microsoft Docs: [Network Throttling Index](https://learn.microsoft.com/windows/desktop/snddrv/network-throttling-index)
-2. Microsoft Docs: [Receive Segment Coalescing](https://learn.microsoft.com/windows-hardware/drivers/network/rsc)
-3. Intel NIC Tuning Guides: Energy‑Efficient Ethernet, Flow Control, Interrupt Moderation
-4. SpeedGuide.net: [Windows TCP Tweak Guide](https://www.speedguide.net)
-5. Reddit r/pcmasterrace: Gaming network tweaks discussion
-6. StackOverflow: UDP FastSendDatagramThreshold behavior
-
-
