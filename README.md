@@ -19,7 +19,6 @@ This repository provides two PowerShell scripts:
 - [Testing & Verification](#testing--verification)
 - [Reset Script](#reset-script)
 - [FAQ](#faq)
-- [References](#references)
 
 ## Background & Motivation
 
@@ -155,6 +154,42 @@ A: DSCP priority only helps if upstream devices honor it. Without router QoS you
 
 **Q: Can I tweak settings incrementally?**  
 A: Yes. You can comment out sections of the script to test individual changes (e.g., only NIC settings or only registry tweaks).
+
+## Manual Device Manager Settings for ASUS XG-C100C V2
+
+For optimal performance and minimal UDP jitter, the following **manual** adjustments in the Windows Device Manager are recommended specifically for the ASUS XG-C100C V2 adapter:
+
+1. **Speed & Duplex**  
+   - **Path:** Device Manager → Network Adapters → ASUS XG-C100C V2 → Properties → Advanced → **Speed & Duplex**
+   - **Value:** `10 Gbps Full Duplex`
+   - **Benefit:** Locks the adapter to 10 Gbps and prevents auto-negotiation downshifts or renegotiations that can introduce transient latency spikes.
+
+2. **Energy-Efficient Ethernet (EEE)**  
+   - **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Advanced → **Energy Efficient Ethernet**
+   - **Value:** `Disabled`
+   - **Benefit:** Disables 802.3az power-saving mode to prevent micro-delays when the link wakes from low-power states.
+
+3. **Interrupt Moderation / Interrupt Moderation Rate**  
+   - **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Advanced → **Interrupt Moderation** / **Interrupt Moderation Rate**
+   - **Value:** `Disabled` for full disable, or if unavailable, set **Interrupt Moderation Rate** to `Low`
+   - **Benefit:** Ensures packets trigger immediate CPU interrupts, reducing buffering delays at the cost of slightly higher CPU load.
+
+4. **Downshift Retries** (if present)  
+   - **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Advanced → **Downshift Retries**
+   - **Value:** `Disabled`
+   - **Benefit:** Prevents the NIC from silently falling back to lower link speeds (5G/2.5G/1G) after transient link errors, ensuring a stable 10 Gbps connection.
+
+5. **Device Power Management**  
+   - **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Power Management
+   - **Disable:** `Allow the computer to turn off this device to save power`
+   - **Benefit:** Prevents Windows from powering down the adapter during low activity, which can cause latency spikes when waking.
+
+6. **PCIe Link State Power Management**  
+   - **Path:** Control Panel → Power Options → Change plan settings → Change advanced power settings → PCI Express → **Link State Power Management**
+   - **Value:** `Off` or `Maximum Performance`
+   - **Benefit:** Ensures the PCIe bus remains fully powered and avoids link power-saving transitions.
+
+Implementing these manual Device Manager tweaks alongside the automated script will deliver the lowest possible UDP latency and jitter on the ASUS XG-C100C V2.
 
 ## References
 
