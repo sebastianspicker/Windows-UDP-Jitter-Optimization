@@ -49,12 +49,12 @@ $ErrorActionPreference = 'Continue'
 Write-Host "`n>>> Starting Ultimate UDP Jitter Reduction <<<`n" -ForegroundColor Cyan
 
 #--- A1. Set High Performance Power Plan ------------------------------------
-Write-Host "1) Setting High Performance power plan..." -ForegroundColor Yellow
-try {
-    powercfg /S 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
-} catch {
-    Write-Warning "Could not set power plan to High Performance."
-}
+# Write-Host "1) Setting High Performance power plan..." -ForegroundColor Yellow
+# try {
+    # powercfg /S 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c | Out-Null
+# } catch {
+    # Write-Warning "Could not set power plan to High Performance."
+# }
 
 #--- A2. Registry Tweaks: Network Throttling, Responsiveness & FastSend ------
 Write-Host "2) Disabling network throttling & configuring multimedia scheduler..." -ForegroundColor Yellow
@@ -184,46 +184,69 @@ foreach ($adapter in $adapters) {
     Set-Prop $name "Transmit Buffers" 256
 }
 
-#--- C. QoS POLICIES ---------------------------------------------------------
-Write-Host "`n5) Configuring per-port QoS policies for UDP jitter reduction..." -ForegroundColor Yellow
+# #--- C. QoS POLICIES ---------------------------------------------------------
+# Write-Host "`n5) Configuring per-port QoS policies for UDP jitter reduction..." -ForegroundColor Yellow
 
-# 18. Allow local QoS by disabling NLA enforcement
-try {
-    $qosRegKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\QoS"
-    New-Item -Path $qosRegKey -Force | Out-Null
-    Set-ItemProperty -Path $qosRegKey -Name "Do not use NLA" -Type String -Value "1" -Force
-} catch {
-    Write-Warning "Failed to set 'Do not use NLA' registry key."
-}
+# # 18. Allow local QoS by disabling NLA enforcement
+# try {
+    # $qosRegKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\QoS"
+    # New-Item -Path $qosRegKey -Force | Out-Null
+    # Set-ItemProperty -Path $qosRegKey -Name "Do not use NLA" -Type String -Value "1" -Force
+# } catch {
+    # Write-Warning "Failed to set 'Do not use NLA' registry key."
+# }
 
-# 16 & 17. Remove old per-port policies and create new DSCP=46 in/out policies
-$ports = 27015..27036 + 9987
-foreach ($port in $ports) {
-    foreach ($policyName in @("QoS_Out_UDP_$port", "QoS_In_UDP_$port")) {
-        if (Get-NetQosPolicy -Name $policyName -PolicyStore PersistentStore -ErrorAction SilentlyContinue) {
-            Remove-NetQosPolicy -Name $policyName -PolicyStore PersistentStore -Confirm:$false
-        }
-    }
-    New-NetQosPolicy -Name "QoS_Out_UDP_$port" -PolicyStore PersistentStore `
-        -IPProtocol UDP -RemotePortRange "$port-$port" -DSCPAction 46 -NetworkProfile All | Out-Null
-    New-NetQosPolicy -Name "QoS_In_UDP_$port"  -PolicyStore PersistentStore `
-        -IPProtocol UDP -LocalPortRange  "$port-$port" -DSCPAction 46 -NetworkProfile All | Out-Null
-}
+# # 16 & 17. Remove old per-port policies and create new DSCP=46 in/out policies
+# $ports = 27015..27036 + 9987
+# foreach ($port in $ports) {
+    # $outName = "QoS_Out_UDP_$port"
+    # $inName  = "QoS_In_UDP_$port"
 
-# 19. Optional: Generic QoS policies for TeamSpeak & game traffic
-try {
-    Get-NetQosPolicy -PolicyStore Local |
-      Where-Object Name -in @("HighPriority_TeamSpeak","HighPriority_Game") |
-      Remove-NetQosPolicy -PolicyStore Local -Confirm:$false
+    # # Remove any existing policy
+    # if (Get-NetQosPolicy -Name $outName -PolicyStore PersistentStore -ErrorAction SilentlyContinue) {
+        # Remove-NetQosPolicy -Name $outName -PolicyStore PersistentStore -Confirm:$false
+    # }
+    # if (Get-NetQosPolicy -Name $inName -PolicyStore PersistentStore -ErrorAction SilentlyContinue) {
+        # Remove-NetQosPolicy -Name $inName -PolicyStore PersistentStore -Confirm:$false
+    # }
 
-    New-NetQosPolicy -Name "HighPriority_TeamSpeak" -PolicyStore Local `
-      -Protocol UDP -DestinationPort 9987 -DSCPAction 46 -Description "TeamSpeak EF" | Out-Null
+    # # Outbound UDP on remote port $port
+    # New-NetQosPolicy -Name $outName -PolicyStore PersistentStore `
+        # -IPProtocolMatchCondition UDP `
+        # -RemotePortStart $port -RemotePortEnd $port `
+        # -DSCPAction 46 -NetworkProfile All
 
-    New-NetQosPolicy -Name "HighPriority_Game" -PolicyStore Local `
-      -Protocol UDP -DestinationPortRange 27015-27036 -DSCPAction 46 -Description "Game EF" | Out-Null
-} catch {
-    Write-Warning "Generic QoS policies setup failed: $($_.Exception.Message)"
-}
+    # # Inbound UDP on local port $port
+    # New-NetQosPolicy -Name $inName -PolicyStore PersistentStore `
+        # -IPProtocolMatchCondition UDP `
+        # -LocalPortStart $port -LocalPortEnd $port `
+        # -DSCPAction 46 -NetworkProfile All
+# }
+
+# # 19. Optional: Generic QoS policies for TeamSpeak & game traffic
+# try {
+    # # Remove old
+    # foreach ($n in "HighPriority_TeamSpeak","HighPriority_Game") {
+        # if (Get-NetQosPolicy -Name $n -PolicyStore Local -ErrorAction SilentlyContinue) {
+            # Remove-NetQosPolicy -Name $n -PolicyStore Local -Confirm:$false
+        # }
+    # }
+
+    # # TeamSpeak (port 9987)
+    # New-NetQosPolicy -Name "HighPriority_TeamSpeak" -PolicyStore Local `
+        # -IPProtocolMatchCondition UDP `
+        # -RemotePortStart 9987 -RemotePortEnd 9987 `
+        # -DSCPAction 46
+
+    # # Game ports (27015–27036)
+    # New-NetQosPolicy -Name "HighPriority_Game" -PolicyStore Local `
+        # -IPProtocolMatchCondition UDP `
+        # -RemotePortStart 27015 -RemotePortEnd 27036 `
+        # -DSCPAction 46
+
+# } catch {
+    # Write-Warning "Generic QoS policies setup failed: $($_.Exception.Message)"
+# }
 
 #--- D. TCP/IP STACK & NETSH TWEAKS ------------------------------------------
 Write-Host "`n6) Disabling TCP Auto-Tuning, Teredo & UDP Receive Offload..." -ForegroundColor Yellow
