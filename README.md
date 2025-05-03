@@ -1,4 +1,4 @@
-# UDP Jitter Reduction for Windows
+# UDP Jitter Optimization for Windows
 
 This repository provides two PowerShell scripts:
 
