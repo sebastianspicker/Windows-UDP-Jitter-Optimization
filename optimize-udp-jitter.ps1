@@ -57,6 +57,15 @@ Write-Host "`n>>> Starting Ultimate UDP Jitter Reduction <<<`n" -ForegroundColor
 # }
 
 #--- A2. Registry Tweaks: Network Throttling, Responsiveness & FastSend ------
+
+# Ask about background‐audio apps to avoid breaking MMCSS
+$useBackgroundAudio = Read-Host "Do you use OBS, Discord streaming, or other background audio applications? (y/n)"
+if ($useBackgroundAudio -match '^[Yy]') {
+    Write-Host "  - Skipping SystemResponsiveness tweak to preserve MMCSS settings." -ForegroundColor Yellow
+} else {
+    Write-Host "  - Setting SystemResponsiveness to 0 (reserve 0% CPU for background tasks)" -ForegroundColor Yellow
+    Set-ItemProperty -Path $mmKey -Name "SystemResponsiveness" -Type DWord -Value 0 -Force
+}
 Write-Host "2) Disabling network throttling & configuring multimedia scheduler..." -ForegroundColor Yellow
 $mmKey  = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
 $afdKey = "HKLM:\SYSTEM\CurrentControlSet\Services\AFD\Parameters"
