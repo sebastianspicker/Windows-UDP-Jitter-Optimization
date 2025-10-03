@@ -1,225 +1,101 @@
-# UDP Jitter Optimization for Windows
+# UDP Jitter Optimization for Windows 10/11
+Safe defaults with tiered risk levels and full backup/restore workflow for real‑time UDP workloads (e.g., CS2, TeamSpeak).[2]
 
-This repository provides two PowerShell scripts:
+- Focus: outbound DSCP marking via Windows QoS Policies plus conservative NIC/stack tuning for lower latency variance.[1][2]
+- Presets: 1=Conservative, 2=Medium, 3=Higher risk, each with explicit CPU/compatibility trade‑offs and full failsafe backups.[2]
 
-1. **`optimize-udp-jitter.ps1`**: Applies a comprehensive set of client-side tweaks to minimize UDP jitter and improve latency for gaming (Counter-Strike 2) and VoIP (TeamSpeak 3) on Windows 10/11.
-2. **`reset-udp-jitter.ps1`**: Reverts all changes applied by the optimization script, restoring Windows to its default network settings.
+## Scope: Client vs. Server
+- Client endpoints: apply endpoint DSCP policies, enable local QoS, and selectively adjust NIC energy/latency features to stabilize voice/game traffic on Windows 10/11.[3][1][2]
+- Server endpoints: use the same Windows QoS mechanisms but consider data‑center NIC tuning guidance and platform vendor docs; verify that network devices honor DSCP and align server NIC features with low‑latency guidance.[4][1][2]
 
-## Table of Contents
+## What the script changes
+- QoS (endpoint DSCP EF=46): creates port‑based policies in PersistentStore for CS2/TeamSpeak and optionally app‑based policies, with idempotent removal/re‑create logic.[1]
+- Enable local QoS on non‑domain machines: sets “Do not use NLA” so DSCP isn’t cleared by NLA contexts, consistent with Microsoft QoS guidance.[3]
+- MMCSS audio safety: ensures SystemProfile\Tasks\Audio exists with stable defaults and starts core audio services to avoid silent audio failures.[5][6]
+- NIC tuning per preset: disables Energy Efficient Ethernet by default; reduces interrupt moderation and disables flow/green/power‑saving/jumbo at preset 2; adds RSC/offload/ITR toggles at preset 3, with CPU‑cost warnings.[7][2]
+- AFD threshold (conservative): sets FastSendDatagramThreshold=1500 to align with MTU‑sized UDP datagrams, avoiding overly aggressive global thresholds.[8]
+- Full backup/restore: exports MMCSS/AFD registry, inventories QoS policies, snapshots NIC advanced properties and RSC status, and saves the active power plan for rollback.[9][10][1]
 
-* [Background & Motivation](#background--motivation)
-* [Features & Tweaks](#features--tweaks)
+## Presets and trade‑offs
+- Preset 1 (Conservative, default)  
+  - Client: protect MMCSS audio; enable local QoS; add DSCP EF policies for CS2/TS; disable EEE if supported.[6][5][2][3][1]
+  - Server: same QoS approach; leave advanced NIC offloads/moderation intact unless measured issues exist, per Microsoft server tuning guidance.[2]
+- Preset 2 (Medium)  
+  - Client: reduce/disable interrupt moderation, disable flow control/green/power‑saving/jumbo, set AFD FastSendDatagramThreshold=1500 (reboot recommended).[11][8][2]
+  - Server: evaluate per‑workload; flow control/interrupt moderation changes can affect throughput under congestion, so test under realistic load.[2]
+- Preset 3 (Higher risk)  
+  - Client: optional RSC off, LSO/checksum offloads off, ARP/NS/WoL off, ITR=0 if exposed, optional SystemResponsiveness=0 and NetworkThrottlingIndex=FFFFFFFF, and optional URO disable via netsh.[12][13][5][7][2]
+  - Server: only apply with clear measurements and change control; these may raise CPU/ISR/DPC and affect scalability on busy hosts.[2]
 
-  * [A. System & Registry Tweaks](#a-system--registry-tweaks)
-  * [B. NIC Advanced Settings](#b-nic-advanced-settings)
-  * [C. QoS Policies](#c-qos-policies)
-  * [D. TCP/IP Stack & Netsh Tweaks](#d-tcpip-stack--netsh-tweaks)
-  * [E. Optional: NDU Service](#e-optional-ndu-service)
-* [Prerequisites](#prerequisites)
-* [Usage](#usage)
-* [Testing & Verification](#testing--verification)
-* [Reset Script](#reset-script)
-* [FAQ](#faq)
+Notes:
+- DSCP is outbound marking; end‑to‑end benefit requires that intermediate devices honor DSCP, which is common in enterprise/provider QoS designs.[3][1]
+- Reducing moderation/turning off offloads/RSC/URO can lower jitter but increases CPU; always measure before and after.[7][12][2]
 
-## Background & Motivation
+## Client guidance (Windows 10/11)
+- Use New‑NetQosPolicy to DSCP‑mark voice/game ports in PersistentStore; verify with Get‑NetQosPolicy that policies are active.[14][1]
+- Enable local QoS (“Do not use NLA”) so DSCP tags persist on non‑domain machines per Microsoft guidance.[3]
+- Disable Energy Efficient Ethernet (EEE) where supported and consider lowering interrupt moderation if CPU headroom exists.[2]
+- Keep offloads enabled by default; only disable in preset 3 for driver‑specific issues after measurement.[2]
 
-Modern Windows installs include features that, while optimizing for throughput and multimedia workloads, can introduce variability (jitter) in packet transmission—detrimental for real-time applications like online gaming and VoIP. This project combines:
+## Server guidance (Windows Server)
+- Apply QoS marking with the same PowerShell cmdlets; domain GPOs can centralize QoS if desired, using Microsoft’s QoS port range guidance as a model.[1][3]
+- Tune NICs following Microsoft’s server networking tuning guidance; prioritize RSS/RSC/offload usage unless profiling shows latency spikes.[2]
+- Validate DC/ToR/edge policies to ensure DSCP EF is recognized and mapped to a low‑latency queue across the path, per common provider QoS practice.[15]
 
-* Community-verified tweaks (SpeedGuide, Reddit, StackOverflow)
-* Microsoft documentation on network throttling and TCP internals
-* Hardware vendor recommendations (Intel, Broadcom)
-
-into a single, idempotent PowerShell script that:
-
-* Removes OS-imposed limits on packet processing
-* Tunes network interface hardware parameters
-* Prioritizes real-time UDP traffic via DSCP
-* Fine‑tunes the TCP/IP stack for coexisting TCP flows
-
-## Features & Tweaks
-
-### A. System & Registry Tweaks
-
-1. **High Performance Power Plan**
-   Ensures CPU and system devices remain at peak performance.
-2. **Disable Network Throttling** (`NetworkThrottlingIndex = 0xFFFFFFFF`)
-   Removes Windows’ built‑in limit on network packet processing rates.
-3. **Multimedia Scheduler** (`SystemResponsiveness = 0`)
-   Reserves 0% CPU for background tasks when multimedia apps are active.
-4. **UDP FastSendDatagramThreshold** (`0xFFFF`)
-   Increases the threshold for the fast I/O path to 64 KB, avoiding delays on packets >1 KB.
-5. **Optional Game DVR/Game Bar Disable**
-   Stops background game capture services to eliminate additional overhead.
-
-### B. NIC Advanced Settings
-
-Applies per‑adapter advanced property changes (via `Get-/Set-NetAdapterAdvancedProperty`), including:
-
-* **Disable RSC (Receive Segment Coalescing)**
-* **Disable Interrupt Moderation** & set **ITR** to 0
-* **Disable Flow Control**
-* **Disable Energy‑Efficient Ethernet**, **Green Ethernet**, **Power Saving Mode**
-* **Disable LSO v2** (Large Send Offload) for IPv4 & IPv6
-* **Disable TCP/UDP Checksum Offload**
-* **Disable Jumbo Packet support**
-* **Disable ARP/NS Offload**
-* **Disable Wake-on-LAN** features
-* **Set ReceiveBuffers & TransmitBuffers** to 256
-
-These changes force the NIC to deliver each packet immediately at the cost of slightly higher CPU usage.
-
-### C. QoS Policies
-
-Creates and removes QoS policies in the **PersistentStore** to tag UDP traffic with DSCP=46 (EF) for both:
-
-* **Local** (incoming) ports 27015–27036 & 9987
-* **Remote** (outgoing) ports 27015–27036 & 9987
-
-Also disables Network Location Awareness enforcement (`Do not use NLA = 1`) so local QoS applies on non‑domain PCs. Optionally adds generic policies:
-
-* **HighPriority\_TeamSpeak** (UDP 9987)
-* **HighPriority\_Game** (UDP 27015–27036)
-
-### D. TCP/IP Stack & Netsh Tweaks
-
-Uses `netsh` and `Set-NetTCPSetting` to:
-
-* **Disable TCP Auto-Tuning** (Window Scaling = disabled)
-* **Disable Teredo** IPv6 tunneling
-* **Disable UDP Receive Offload** (URO)
-* **Supplemental TCP settings**:
-
-  * Initial Congestion Window (`icw=10`)
-  * Minimum RTO (`minrto=300`ms)
-  * Delayed ACK timeout (`40`ms) & frequency (`2`)
-  * RACK & TLP **enabled**
-  * PRR & HyStart **disabled**
-* **Set TCP profile** to use **CTCP** and enable **ECN** if supported
-
-These ensure TCP flows coexist nicely without starving UDP real‑time traffic.
-
-### E. (Optional) NDU Service
-
-Disables the Network Data Usage service (`NDU`) to eliminate its potential memory and CPU overhead. This is commented out by default.
-
-## Prerequisites
-
-* **Windows 10 or 11** (PowerShell 3.0+)
-* **Administrator** rights
-* **Reboot** after running the optimization script
+## Requirements
+- Windows 10/11 with administrative privileges; PowerShell can apply QoS in PersistentStore without RSAT on clients.[1]
+- Reboot recommended after AFD/MMCSS registry changes for full effect; DSCP policy and NIC changes apply immediately.[5][8]
 
 ## Usage
+- Apply: run elevated PowerShell and invoke the script with a preset; optional per‑session execution policy may be set for convenience.[16][1]
+- Backup/Restore: use the script’s Backup and Restore actions to snapshot and revert registry/QoS/NIC/power plan states.[1]
 
-1. Open an elevated PowerShell prompt.
-2. Run:
+Examples:
+- Apply preset 1 (safe default) on a client endpoint.[2]
+- Apply preset 2 where CPU headroom exists and lower latency is needed.[2]
+- Apply preset 3 only after measuring benefits and understanding CPU impacts.[2]
 
-   ```powershell
-   Set-ExecutionPolicy RemoteSigned -Scope Process
-   .\optimize-udp-jitter.ps1
-   ```
-3. Reboot your system to apply all registry and AFD changes.
+## Verification
+- QoS policies: Get‑NetQosPolicy in ActiveStore/PersistentStore to confirm policies exist and match intended ports/apps.[14]
+- NIC advanced properties: Get‑/Set‑NetAdapterAdvancedProperty to verify EEE/Interrupt Moderation/Flow/Jumbo states per adapter.[10]
+- Netsh trace/diagnostics: use netsh capabilities to record networking traces if deeper analysis is required.[17]
 
-To revert to defaults:
+## Rollback
+- The script restores MMCSS/AFD registry from .reg snapshots, re‑creates QoS from inventory, restores NIC advanced settings and RSC state, and switches back to the saved power plan.[9][10][1]
+- A reboot may be needed for registry settings to fully re‑apply, particularly AFD/MMCSS changes.[8][5]
 
-```powershell
-.\reset-udp-jitter.ps1
-# then reboot
-```
+## Enterprise and provider references
+- Microsoft: Network Adapter Performance Tuning in Windows (EEE, interrupt moderation, offloads, low‑latency considerations).[2]
+- Microsoft: NetQos module (New‑/Set‑/Get‑NetQosPolicy) for DSCP policies on Windows endpoints.[18][14][1]
+- Microsoft: QoS for Skype/Teams clients, port ranges and “Do not use NLA” for local DSCP.[3]
+- Microsoft: MMCSS fundamentals and scheduling categories, basis for audio safety.[5]
+- Microsoft: UDP Receive Segment Coalescing Offload (URO/UDP‑RSC) platform documentation.[13][19]
+- Microsoft: RSC management cmdlets for per‑adapter configuration.[7][9]
+- Oracle: Coherence performance tuning notes referencing conservative AFD FastSendDatagramThreshold around MTU.[8]
+- Cisco: Enabling DSCP QoS tagging on Windows endpoints as part of end‑to‑end QoS design.[15]
+- NVIDIA Networking: performance optimization/tuning notes relevant to Windows NICs in low‑latency contexts.[4]
+- Dell: advanced property configuration examples for Windows environments.[20]
 
-## Testing & Verification
+Safety note:
+- Changes are reversible via the built‑in backup/restore workflow; always test under representative load, and use change control on servers.[1][2]
 
-* **PingPlotter**, **psping**, or **WinMTR** to measure jitter before/after.
-* **Wireshark** to inspect DSCP tags in UDP packets.
-* **Task Manager → Performance → Networking** to verify no unusual CPU spikes on NIC drivers.
-
-## Reset Script
-
-The `reset-udp-jitter.ps1` script performs the inverse of each tweak, restoring:
-
-* Balanced power plan
-* Default registry values and MMCSS keys
-* Game DVR/Game Bar
-* NIC advanced properties & RSC
-* QoS policies & NLA enforcement
-* CPU/NIC offload defaults & netsh settings
-* CTCP = NewReno & ECN Disabled
-* (Optional) NDU service to automatic start
-
-Always reboot after running the reset script.
-
-## FAQ
-
-**Q: Will these tweaks break non‑gaming traffic?**
-A: Most settings improve latency at the cost of marginal CPU usage. Throughput‑heavy workloads (large file transfers) may see slightly lower max bandwidth but minimal effect in typical home/gaming use.
-
-**Q: My router ignores DSCP.**
-A: DSCP priority only helps if upstream devices honor it. Without router QoS you might not see DSCP improvements, but all other tweaks still reduce local jitter.
-
-**Q: Can I tweak settings incrementally?**
-A: Yes. You can comment out sections of the script to test individual changes (e.g., only NIC settings or only registry tweaks).
-
-## Manual Device Manager Settings for ASUS XG-C100C V2
-
-For optimal performance and minimal UDP jitter, the following **manual** adjustments in the Windows Device Manager are recommended specifically for the ASUS XG-C100C V2 adapter:
-
-1. **Speed & Duplex**
-
-   * **Path:** Device Manager → Network Adapters → ASUS XG-C100C V2 → Properties → Advanced → **Speed & Duplex**
-   * **Value:** `10 Gbps Full Duplex`
-   * **Benefit:** Locks the adapter to 10 Gbps and prevents auto-negotiation downshifts or renegotiations that can introduce transient latency spikes.
-
-2. **Energy-Efficient Ethernet (EEE)**
-
-   * **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Advanced → **Energy Efficient Ethernet**
-   * **Value:** `Disabled`
-   * **Benefit:** Disables 802.3az power-saving mode to prevent micro-delays when the link wakes from low-power states.
-
-3. **Interrupt Moderation / Interrupt Moderation Rate**
-
-   * **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Advanced → **Interrupt Moderation** / **Interrupt Moderation Rate**
-   * **Value:** `Disabled` for full disable, or if unavailable, set **Interrupt Moderation Rate** to `Low`
-   * **Benefit:** Ensures packets trigger immediate CPU interrupts, reducing buffering delays at the cost of slightly higher CPU load.
-
-4. **Downshift Retries** (if present)
-
-   * **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Advanced → **Downshift Retries**
-   * **Value:** `Disabled`
-   * **Benefit:** Prevents the NIC from silently falling back to lower link speeds (5G/2.5G/1G) after transient link errors, ensuring a stable 10 Gbps connection.
-
-5. **Device Power Management**
-
-   * **Path:** Device Manager → ASUS XG-C100C V2 → Properties → Power Management
-   * **Disable:** `Allow the computer to turn off this device to save power`
-   * **Benefit:** Prevents Windows from powering down the adapter during low activity, which can cause latency spikes when waking.
-
-6. **PCIe Link State Power Management**
-
-   * **Path:** Control Panel → Power Options → Change plan settings → Change advanced power settings → PCI Express → **Link State Power Management**
-   * **Value:** `Off` or `Maximum Performance`
-   * **Benefit:** Ensures the PCIe bus remains fully powered and avoids link power-saving transitions.
-
-Implementing these manual Device Manager tweaks alongside the automated script will deliver the lowest possible UDP latency and jitter on the ASUS XG-C100C V2.
-
-## QoS Troubleshooting & RSAT Requirements
-
-### Why QoS Policies May Fail
-
-* **Missing RSAT Group Policy module**: Some `New-NetQosPolicy` parameters (e.g., port matching) require the RSAT Group Policy tools installed.
-* **PowerShell version**: Ensure PowerShell 5.1+ and the `NetQos` module are available.
-* **PolicyStore mismatch**: Use `-PolicyStore Local` for generic policies and `PersistentStore` for port-specific.
-
-### Installing/Uninstalling RSAT
-
-To install:
-
-```powershell
-Add-WindowsCapability -Online -Name Rsat.GroupPolicy.Management.Tools~~~~0.0.1.0
-```
-
-To remove:
-
-```powershell
-Remove-WindowsCapability -Online -Name Rsat.GroupPolicy.Management.Tools~~~~0.0.1.0
-```
-
-After installing RSAT, reboot and retry the QoS section. Ensure to run PowerShell as Administrator.
+[1](https://learn.microsoft.com/en-us/powershell/module/netqos/new-netqospolicy?view=windowsserver2025-ps)
+[2](https://learn.microsoft.com/en-us/windows-server/networking/technologies/network-subsystem/net-sub-performance-tuning-nics)
+[3](https://learn.microsoft.com/en-us/skypeforbusiness/manage/network-management/qos/configuring-port-ranges-for-your-skype-clients)
+[4](https://docs.nvidia.com/networking/display/WINOFv55054000/General+Performance+Optimization+and+Tuning)
+[5](https://learn.microsoft.com/en-us/windows/win32/procthread/multimedia-class-scheduler-service)
+[6](https://djdallmann.github.io/GamingPCSetup/CONTENT/RESEARCH/FINDINGS/registrykeys_mmcss.txt)
+[7](https://learn.microsoft.com/en-us/powershell/module/netadapter/disable-netadapterrsc?view=windowsserver2025-ps)
+[8](https://docs.oracle.com/en/middleware/fusion-middleware/coherence/12.2.1.4/administer/performance-tuning.html)
+[9](https://learn.microsoft.com/en-us/powershell/module/netadapter/get-netadapterrsc?view=windowsserver2025-ps)
+[10](https://learn.microsoft.com/en-us/powershell/module/netadapter/set-netadapteradvancedproperty?view=windowsserver2025-ps)
+[11](https://learn.microsoft.com/en-us/windows-server/networking/technologies/hpn/hpn-hardware-only-features)
+[12](https://microsoft.github.io/msquic/msquicdocs/docs/TSG.html)
+[13](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/udp-rsc-offload)
+[14](https://learn.microsoft.com/en-us/powershell/module/netqos/get-netqospolicy?view=windowsserver2025-ps)
+[15](https://www.cisco.com/c/en/us/support/docs/quality-of-service-qos/qos-configuration-monitoring/221868-enable-dscp-qos-tagging-on-windows-machi.html)
+[16](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-executionpolicy?view=powershell-7.5)
+[17](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh)
+[18](https://learn.microsoft.com/en-us/powershell/module/netqos/set-netqospolicy?view=windowsserver2025-ps)
+[19](https://learn.microsoft.com/de-de/windows-hardware/drivers/network/udp-rsc-offload)
+[20](https://www.dell.com/support/manuals/en-us/ax-760/ashci_scalable_deployment_option_guide_windows/update-network-adapter-advanced-properties?guid=guid-a3d86927-f96d-416a-bb62-44ec26dd45fa&lang=en-us)
