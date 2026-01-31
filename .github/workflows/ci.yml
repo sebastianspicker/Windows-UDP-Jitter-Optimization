@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  powershell:
+    name: PSScriptAnalyzer + Pester (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-PackageProvider -Name NuGet -Force | Out-Null
+          Install-Module PSScriptAnalyzer,Pester -Scope CurrentUser -Force
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse
+          if ($results) {
+            $results | Sort-Object ScriptName,Line | Format-Table -AutoSize | Out-String | Write-Host
+            throw "PSScriptAnalyzer found $($results.Count) issue(s)."
+          }
+
+      - name: Pester
+        shell: pwsh
+        run: |
+          Invoke-Pester -Path ./tests -CI

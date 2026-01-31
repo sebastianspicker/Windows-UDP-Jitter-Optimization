@@ -45,6 +45,34 @@ Notes:
 - Windows 10/11 with administrative privileges; PowerShell can apply QoS in PersistentStore without RSAT on clients.
 - Reboot recommended after AFD/MMCSS registry changes for full effect; DSCP policy and NIC changes apply immediately.
 
+## Quick start (Windows 10/11)
+Run PowerShell 7+ as Administrator:
+
+```powershell
+# (Optional) allow running in the current session only
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# Apply preset 1 (safe default)
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\optimize-udp-jitter.ps1 -Action Apply -Preset 1
+
+# Backup / restore
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\optimize-udp-jitter.ps1 -Action Backup
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\optimize-udp-jitter.ps1 -Action Restore
+
+# Reset to baseline defaults
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\optimize-udp-jitter.ps1 -Action ResetDefaults
+
+# Preview (no system changes)
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\optimize-udp-jitter.ps1 -Action Apply -Preset 2 -DryRun
+```
+
+Module usage (advanced):
+
+```powershell
+Import-Module .\WindowsUdpJitterOptimization\WindowsUdpJitterOptimization.psd1 -Force
+Invoke-UdpJitterOptimization -Action Apply -Preset 1
+```
+
 ## Usage
 - Apply: run elevated PowerShell and invoke the script with a preset; optional per‑session execution policy may be set for convenience.
 - Backup/Restore: use the script’s Backup and Restore actions to snapshot and revert registry/QoS/NIC/power plan states.
@@ -62,6 +90,18 @@ Examples:
 ## Rollback
 - The script restores MMCSS/AFD registry from .reg snapshots, re‑creates QoS from inventory, restores NIC advanced settings and RSC state, and switches back to the saved power plan.
 - A reboot may be needed for registry settings to fully re‑apply, particularly AFD/MMCSS changes.
+
+## Testing / QA
+These checks are offline and can be run on any platform (they do not apply system tweaks).
+
+```powershell
+pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer,Pester -Scope CurrentUser -Force'
+pwsh -NoProfile -Command 'Invoke-ScriptAnalyzer -Path . -Recurse'
+pwsh -NoProfile -Command 'Invoke-Pester -Path ./tests -CI'
+```
+
+## CI
+GitHub Actions runs PSScriptAnalyzer and Pester on pull requests.
 
 ## Safety note:
 - Changes are mostly reversible via the built‑in backup/restore workflow; always test under representative load, and use change control on servers. Use at your own risk.
