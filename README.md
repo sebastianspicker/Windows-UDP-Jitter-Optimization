@@ -73,6 +73,18 @@ Import-Module .\WindowsUdpJitterOptimization\WindowsUdpJitterOptimization.psd1 -
 Invoke-UdpJitterOptimization -Action Apply -Preset 1
 ```
 
+## Configuration
+Key parameters (see `optimize-udp-jitter.ps1 -?` for full help):
+- `-Action`: `Apply`, `Backup`, `Restore`, or `ResetDefaults`.
+- `-Preset`: `1` (Conservative), `2` (Medium), `3` (Higher risk).
+- `-TeamSpeakPort`, `-CS2PortStart`, `-CS2PortEnd`: port ranges for DSCP policies.
+- `-IncludeAppPolicies`, `-AppPaths`: optional app-based QoS policies.
+- `-AfdThreshold`: AFD `FastSendDatagramThreshold` (preset 2+).
+- `-PowerPlan`: `None`, `HighPerformance`, or `Ultimate`.
+- `-DisableGameDvr`, `-DisableUro`: optional toggles.
+- `-BackupFolder`: backup location (default under `ProgramData`).
+- `-DryRun`: preview only, no system changes.
+
 ## Usage
 - Apply: run elevated PowerShell and invoke the script with a preset; optional per‑session execution policy may be set for convenience.
 - Backup/Restore: use the script’s Backup and Restore actions to snapshot and revert registry/QoS/NIC/power plan states.
@@ -100,8 +112,23 @@ pwsh -NoProfile -Command 'Invoke-ScriptAnalyzer -Path . -Recurse'
 pwsh -NoProfile -Command 'Invoke-Pester -Path ./tests -CI'
 ```
 
+## Development
+- See `docs/RUNBOOK.md` for setup, fast loop, and full loop commands.
+- Lint: `pwsh -NoProfile -Command 'Invoke-ScriptAnalyzer -Path . -Recurse'`
+- Tests: `pwsh -NoProfile -Command 'Invoke-Pester -Path ./tests -CI'`
+
 ## CI
 GitHub Actions runs PSScriptAnalyzer and Pester on pull requests.
+
+## Security
+- Do not include secrets, tokens, or sensitive system data in issues or logs.
+- Report security concerns via a GitHub issue with minimal, non-sensitive details.
+- See `SECURITY.md` for the full security policy.
+
+## Troubleshooting
+- Module import fails: ensure PowerShell 7+ and run from repo root.
+- ScriptAnalyzer warnings: run with `-Recurse` from repo root to match CI.
+- Pester failures on non-Windows: tests must remain offline; mock or skip Windows-only cmdlets.
 
 ## Safety note:
 - Changes are mostly reversible via the built‑in backup/restore workflow; always test under representative load, and use change control on servers. Use at your own risk.

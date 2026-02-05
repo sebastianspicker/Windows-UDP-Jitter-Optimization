@@ -161,7 +161,15 @@ function Restore-UjState {
 
 function Set-UjMmcssAudioSafety {
   [CmdletBinding(SupportsShouldProcess = $true)]
-  param()
+  param(
+    [Parameter()]
+    [switch]$DryRun
+  )
+
+  if ($DryRun) {
+    Write-UjInformation -Message '[DryRun] Ensure MMCSS audio safety registry values.'
+    return
+  }
 
   $mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
   $tasks = Join-Path -Path $mm -ChildPath 'Tasks'
@@ -189,7 +197,15 @@ function Set-UjMmcssAudioSafety {
 
 function Start-UjAudioService {
   [CmdletBinding(SupportsShouldProcess = $true)]
-  param()
+  param(
+    [Parameter()]
+    [switch]$DryRun
+  )
+
+  if ($DryRun) {
+    Write-UjInformation -Message '[DryRun] Ensure audio services are Automatic and running.'
+    return
+  }
 
   foreach ($serviceName in @('AudioEndpointBuilder', 'Audiosrv', 'MMCSS')) {
     try {
@@ -213,7 +229,15 @@ function Start-UjAudioService {
 
 function Enable-UjLocalQosMarking {
   [CmdletBinding(SupportsShouldProcess = $true)]
-  param()
+  param(
+    [Parameter()]
+    [switch]$DryRun
+  )
+
+  if ($DryRun) {
+    Write-UjInformation -Message '[DryRun] Enable local QoS marking (Do not use NLA).'
+    return
+  }
 
   $qos = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\QoS'
   if ($PSCmdlet.ShouldProcess($qos, 'Create registry key')) {
@@ -358,8 +382,16 @@ function Set-UjGameDvrState {
   param(
     [Parameter(Mandatory)]
     [ValidateSet('Enabled', 'Disabled')]
-    [string]$State
+    [string]$State,
+
+    [Parameter()]
+    [switch]$DryRun
   )
+
+  if ($DryRun) {
+    Write-UjInformation -Message ("[DryRun] Set GameDVR capture to {0}." -f $State)
+    return
+  }
 
   $dvr = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR'
   if (-not (Test-Path -Path $dvr)) {
@@ -424,7 +456,7 @@ function Reset-UjBaseline {
     Write-UjInformation -Message '[DryRun] Remove registry tweaks (NetworkThrottlingIndex/SystemResponsiveness/FastSendDatagramThreshold/MMCSS Games)'
   }
 
-  Set-UjGameDvrState -State Enabled
+  Set-UjGameDvrState -State Enabled -DryRun:$DryRun
 
   if ($DryRun) {
     Write-UjInformation -Message '[DryRun] Reset NIC advanced properties and re-enable RSC.'

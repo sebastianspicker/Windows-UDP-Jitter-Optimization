@@ -1,2 +1,24 @@
 # Pester (Invoke-Pester -CI)
 testResults.xml
+TestResults.xml
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Local findings/logs/decisions
+DECISIONS.md
+FINDINGS.md
+LOG.md
+REFACTOR_PLAN.md
+PHYSICS_AUDIT.md
+validation.md
+HANDOFF.md
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

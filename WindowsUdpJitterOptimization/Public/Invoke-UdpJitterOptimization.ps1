@@ -89,10 +89,10 @@ function Invoke-UdpJitterOptimization {
 
   Backup-UjState -BackupFolder $BackupFolder
 
-  Set-UjMmcssAudioSafety
-  Start-UjAudioService
+  Set-UjMmcssAudioSafety -DryRun:$DryRun
+  Start-UjAudioService -DryRun:$DryRun
 
-  Enable-UjLocalQosMarking
+  Enable-UjLocalQosMarking -DryRun:$DryRun
 
   New-UjDscpPolicyByPort -Name ("QoS_UDP_TS_{0}" -f $TeamSpeakPort) -PortStart $TeamSpeakPort -PortEnd $TeamSpeakPort -Dscp 46 -DryRun:$DryRun
   New-UjDscpPolicyByPort -Name ("QoS_UDP_CS2_{0}_{1}" -f $CS2PortStart, $CS2PortEnd) -PortStart $CS2PortStart -PortEnd $CS2PortEnd -Dscp 46 -DryRun:$DryRun
@@ -118,7 +118,7 @@ function Invoke-UdpJitterOptimization {
   }
 
   if ($DisableGameDvr) {
-    Set-UjGameDvrState -State Disabled
+    Set-UjGameDvrState -State Disabled -DryRun:$DryRun
   }
 
   Show-UjSummary
