@@ -1,12 +1,18 @@
 # Pester (Invoke-Pester -CI)
 testResults.xml
 TestResults.xml
+PesterResults*.xml
+junit.xml
+test-results/
+TestResults/
+coverage/
 
 # Logs and temp files
 *.log
 *.tmp
 *.bak
 *.swp
+.cache/
 
 # Local findings/logs/decisions
 DECISIONS.md
