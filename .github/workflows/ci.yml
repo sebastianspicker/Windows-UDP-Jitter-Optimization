@@ -4,44 +4,36 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   powershell:
-    name: PSScriptAnalyzer + Pester (${{ matrix.os }})
+    name: PowerShell checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            modulePath: ~/.local/share/powershell/Modules
+          - os: windows-latest
+            modulePath: C:\Users\runneradmin\Documents\PowerShell\Modules
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $repo = Get-PSRepository -Name PSGallery
-          $restorePolicy = $false
-          if ($repo.InstallationPolicy -ne 'Trusted') {
-            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-            $restorePolicy = $true
-          }
-          Install-PackageProvider -Name NuGet -Force | Out-Null
-          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
-          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
-          if ($restorePolicy) {
-            Set-PSRepository -Name PSGallery -InstallationPolicy $repo.InstallationPolicy
-          }
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.modulePath }}
+          key: psmodules-${{ runner.os }}-pssa-1.24.0-pester-5.7.1
 
-      - name: PSScriptAnalyzer
-        shell: pwsh
+      - name: Run CI checks
+        shell: pwsh -NoProfile -NonInteractive -Command "{0}"
         run: |
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse
-          if ($results) {
-            $results | Sort-Object ScriptName,Line | Format-Table -AutoSize | Out-String | Write-Host
-            throw "PSScriptAnalyzer found $($results.Count) issue(s)."
-          }
-
-      - name: Pester
-        shell: pwsh
-        run: |
-          Invoke-Pester -Path ./tests -CI
+          ./scripts/ci.ps1

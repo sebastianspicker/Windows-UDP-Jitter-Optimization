@@ -112,6 +112,9 @@ pwsh -NoProfile -Command 'Invoke-ScriptAnalyzer -Path . -Recurse'
 pwsh -NoProfile -Command 'Invoke-Pester -Path ./tests -CI'
 ```
 
+Shortcut (runs the same checks as CI):
+`./scripts/ci-local.sh`
+
 ## Development
 - See `docs/RUNBOOK.md` for setup, fast loop, and full loop commands.
 - Lint: `pwsh -NoProfile -Command 'Invoke-ScriptAnalyzer -Path . -Recurse'`
