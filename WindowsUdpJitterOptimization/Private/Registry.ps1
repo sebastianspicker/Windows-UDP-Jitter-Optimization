@@ -9,9 +9,18 @@ function Export-UjRegistryKey {
   )
 
   try {
-    & reg.exe export $RegistryPath $OutFile /y | Out-Null
+    # Ensure output directory exists
+    $outDir = Split-Path -Path $OutFile -Parent
+    if ($outDir -and -not (Test-Path -Path $outDir)) {
+      New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+    }
+
+    $result = & reg.exe export $RegistryPath $OutFile /y 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      Write-Verbose -Message ("Registry export failed for {0}: {1}" -f $RegistryPath, ($result -join ' '))
+    }
   } catch {
-    Write-Verbose -Message ("Registry export failed: {0}" -f $RegistryPath)
+    Write-Verbose -Message ("Registry export failed: {0} - {1}" -f $RegistryPath, $_.Exception.Message)
   }
 }
 
@@ -57,7 +66,7 @@ function Set-UjRegistryValue {
     }
   }
 
-  if (-not $PSCmdlet.ShouldProcess(("{0}\\{1}" -f $Key, $Name), ("Set registry value ({0})" -f $Type))) {
+  if (-not $PSCmdlet.ShouldProcess((Join-Path -Path $Key -ChildPath $Name), ("Set registry value ({0})" -f $Type))) {
     return
   }
 

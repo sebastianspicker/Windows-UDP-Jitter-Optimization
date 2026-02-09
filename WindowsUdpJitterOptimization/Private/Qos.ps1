@@ -53,8 +53,13 @@ function New-UjDscpPolicyByPort {
     throw 'PortEnd must be >= PortStart.'
   }
 
+  $portRange = [int]$PortEnd - [int]$PortStart + 1
+  if ($portRange -gt 100) {
+    Write-Warning -Message ("Large port range detected ({0} ports). This may create many QoS policies and take significant time. Consider using smaller ranges." -f $portRange)
+  }
+
   if ($DryRun) {
-    Write-UjInformation -Message ("[DryRun] QoS {0} UDP {1}-{2} DSCP={3} (local store)" -f $Name, $PortStart, $PortEnd, $Dscp)
+    Write-UjInformation -Message ("[DryRun] QoS {0} UDP {1}-{2} DSCP={3} (local store, {4} policies)" -f $Name, $PortStart, $PortEnd, $Dscp, $portRange)
     return
   }
 
@@ -76,7 +81,11 @@ function New-UjDscpPolicyByPort {
       continue
     }
 
-    New-NetQosPolicy -Name $policyName -IPPortMatchCondition ([uint16]$port) -IPProtocolMatchCondition UDP -DSCPAction $Dscp -NetworkProfile All | Out-Null
+    try {
+      New-NetQosPolicy -Name $policyName -IPPortMatchCondition ([uint16]$port) -IPProtocolMatchCondition UDP -DSCPAction $Dscp -NetworkProfile All | Out-Null
+    } catch {
+      Write-Warning -Message ("Failed to create QoS policy for port {0}: {1}" -f $port, $_.Exception.Message)
+    }
   }
 }
 

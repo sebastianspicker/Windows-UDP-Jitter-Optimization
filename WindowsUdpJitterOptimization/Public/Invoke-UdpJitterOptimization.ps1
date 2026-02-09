@@ -97,9 +97,12 @@ function Invoke-UdpJitterOptimization {
   New-UjDscpPolicyByPort -Name ("QoS_UDP_TS_{0}" -f $TeamSpeakPort) -PortStart $TeamSpeakPort -PortEnd $TeamSpeakPort -Dscp 46 -DryRun:$DryRun
   New-UjDscpPolicyByPort -Name ("QoS_UDP_CS2_{0}_{1}" -f $CS2PortStart, $CS2PortEnd) -PortStart $CS2PortStart -PortEnd $CS2PortEnd -Dscp 46 -DryRun:$DryRun
 
-  if ($IncludeAppPolicies -and $AppPaths.Count -gt 0) {
+  if ($IncludeAppPolicies -and $null -ne $AppPaths -and $AppPaths.Count -gt 0) {
     $i = 0
     foreach ($path in $AppPaths) {
+      if ([string]::IsNullOrWhiteSpace($path)) {
+        continue
+      }
       $i++
       New-UjDscpPolicyByApp -Name ('QoS_APP_{0}' -f $i) -ExePath $path -Dscp 46 -DryRun:$DryRun
     }
