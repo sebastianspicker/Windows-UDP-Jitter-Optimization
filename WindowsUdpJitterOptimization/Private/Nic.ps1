@@ -46,16 +46,20 @@ function Set-UjNicConfiguration {
     [switch]$DryRun
   )
 
-  $adapters = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' }
+  try {
+    $adapters = Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' }
+  } catch {
+    Write-Warning -Message ("Get-NetAdapter failed: {0}" -f $_.Exception.Message)
+    return
+  }
+
   foreach ($nic in $adapters) {
     Write-UjInformation -Message ("NIC: {0}" -f $nic.Name)
 
     Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Energy Efficient Ethernet' -Value 'Disabled' -DryRun:$DryRun
 
     if ($Preset -ge 2) {
-      foreach ($value in @('Disabled', 'Off', 'Low')) {
-        Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Interrupt Moderation' -Value $value -DryRun:$DryRun
-      }
+      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Interrupt Moderation' -Value 'Disabled' -DryRun:$DryRun
 
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Flow Control' -Value 'Disabled' -DryRun:$DryRun
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Green Ethernet' -Value 'Disabled' -DryRun:$DryRun

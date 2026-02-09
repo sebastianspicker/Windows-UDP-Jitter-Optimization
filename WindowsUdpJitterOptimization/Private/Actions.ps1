@@ -128,13 +128,17 @@ function Restore-UjState {
   if (Test-Path -Path $csv) {
     try {
       $data = Import-Csv -Path $csv
+      $firstRow = $data | Select-Object -First 1
+      if (-not $firstRow -or -not ($firstRow.PSObject.Properties.Name -contains 'Adapter')) {
+        Write-Warning -Message 'NIC advanced restore skipped: CSV missing or invalid (no Adapter column).'
+      } else {
       $adapters = $data | Select-Object -ExpandProperty Adapter -Unique
       foreach ($adapter in $adapters) {
         foreach ($property in ($data | Where-Object { $_.Adapter -eq $adapter })) {
           try {
-            # Check for DisplayName/DisplayValue (allow empty strings and "0" as valid values)
-            if ($property.DisplayName -and [string]::IsNullOrEmpty($property.DisplayName) -eq $false -and 
-                $null -ne $property.DisplayValue -and [string]::IsNullOrEmpty([string]$property.DisplayValue) -eq $false) {
+            # Check for DisplayName/DisplayValue (allow empty string as valid when property exists)
+            if ($property.PSObject.Properties.Name -contains 'DisplayName' -and [string]::IsNullOrEmpty($property.DisplayName) -eq $false -and
+                $property.PSObject.Properties.Name -contains 'DisplayValue') {
               if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property: {0}" -f $property.DisplayName))) {
                 Set-NetAdapterAdvancedProperty -Name $adapter -DisplayName $property.DisplayName -DisplayValue $property.DisplayValue -NoRestart -ErrorAction Stop | Out-Null
               }
@@ -153,6 +157,7 @@ function Restore-UjState {
             Write-Verbose -Message ("NIC property restore failed: {0} ({1})" -f $adapter, $property.DisplayName)
           }
         }
+      }
       }
     } catch {
       Write-Warning -Message 'NIC advanced restore error.'
@@ -189,9 +194,12 @@ function Restore-UjState {
       $guid = $Matches[0]
       if ($PSCmdlet.ShouldProcess($guid, 'Restore power plan')) {
         try {
-          & powercfg /S $guid | Out-Null
+          $null = & powercfg /S $guid 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning -Message ("Power plan restore failed (powercfg /S exited with {0})." -f $LASTEXITCODE)
+          }
         } catch {
-          Write-Verbose -Message 'Power plan restore failed.'
+          Write-Verbose -Message ("Power plan restore failed: {0}" -f $_.Exception.Message)
         }
       }
     }
@@ -415,7 +423,10 @@ function Set-UjPowerPlan {
     }
   }
 
-  & powercfg /S $guid | Out-Null
+  $null = & powercfg /S $guid 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning -Message ("Setting power plan failed (powercfg /S exited with {0})." -f $LASTEXITCODE)
+  }
 }
 
 function Set-UjGameDvrState {
@@ -502,7 +513,13 @@ function Reset-UjBaseline {
   if ($DryRun) {
     Write-UjInformation -Message '[DryRun] Reset NIC advanced properties and re-enable RSC.'
   } else {
-    foreach ($adapter in (Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' })) {
+    try {
+      $adapters = Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' }
+    } catch {
+      Write-Warning -Message ("Get-NetAdapter failed during reset: {0}" -f $_.Exception.Message)
+      $adapters = @()
+    }
+    foreach ($adapter in $adapters) {
       if ($PSCmdlet.ShouldProcess($adapter.Name, 'Reset NetAdapterAdvancedProperty')) {
         Reset-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName '*' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
       }

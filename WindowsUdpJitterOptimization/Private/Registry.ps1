@@ -36,9 +36,12 @@ function Import-UjRegistryFile {
   }
 
   try {
-    & reg.exe import $InFile | Out-Null
+    $null = & reg.exe import $InFile 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning -Message ("Registry import failed for {0} (reg.exe exited with {1})." -f $InFile, $LASTEXITCODE)
+    }
   } catch {
-    Write-Warning -Message ("Registry import failed: {0}" -f $InFile)
+    Write-Warning -Message ("Registry import failed: {0} - {1}" -f $InFile, $_.Exception.Message)
   }
 }
 
