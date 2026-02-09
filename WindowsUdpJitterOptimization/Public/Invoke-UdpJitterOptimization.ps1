@@ -66,6 +66,14 @@ function Invoke-UdpJitterOptimization {
     Assert-UjAdministrator
   }
 
+  if ($Action -eq 'Apply' -and $CS2PortEnd -lt $CS2PortStart) {
+    throw 'CS2PortEnd must be greater than or equal to CS2PortStart.'
+  }
+
+  if ($Action -in @('Backup', 'Restore', 'Apply') -and [string]::IsNullOrWhiteSpace($BackupFolder)) {
+    throw 'BackupFolder must not be empty.'
+  }
+
   New-UjDirectory -Path $BackupFolder | Out-Null
 
   if ($Action -eq 'Backup') {

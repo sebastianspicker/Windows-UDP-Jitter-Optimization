@@ -127,5 +127,9 @@ function New-UjDscpPolicyByApp {
     return
   }
 
-  New-NetQosPolicy -Name $Name -AppPathNameMatchCondition $ExePath -DSCPAction $Dscp -NetworkProfile All | Out-Null
+  try {
+    New-NetQosPolicy -Name $Name -AppPathNameMatchCondition $ExePath -DSCPAction $Dscp -NetworkProfile All | Out-Null
+  } catch {
+    Write-Warning -Message ("Failed to create QoS policy '{0}' for app path '{1}': {2}" -f $Name, $ExePath, $_.Exception.Message)
+  }
 }
