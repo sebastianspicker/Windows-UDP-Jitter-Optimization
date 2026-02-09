@@ -12,7 +12,12 @@ function Backup-UjState {
   Export-UjRegistryKey -RegistryPath 'HKLM\SYSTEM\CurrentControlSet\Services\AFD\Parameters' -OutFile (Join-Path -Path $BackupFolder -ChildPath 'AFD_Parameters.reg')
 
   try {
-    Get-UjManagedQosPolicy | Export-CliXml -Path (Join-Path -Path $BackupFolder -ChildPath 'qos_ours.xml')
+    $policies = Get-UjManagedQosPolicy
+    if ($policies) {
+      $policies | Export-CliXml -Path (Join-Path -Path $BackupFolder -ChildPath 'qos_ours.xml')
+    } else {
+      Write-Verbose -Message 'No QoS policies found to backup.'
+    }
   } catch {
     Write-Warning -Message 'QoS backup skipped (Get-NetQosPolicy failed).'
   }
@@ -35,9 +40,14 @@ function Backup-UjState {
   }
 
   try {
-    (powercfg /GetActiveScheme) -join "`n" | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath 'powerplan.txt') -Encoding utf8
+    $powerPlanOutput = & powercfg /GetActiveScheme 2>&1
+    if ($LASTEXITCODE -eq 0 -and $powerPlanOutput) {
+      $powerPlanOutput -join "`n" | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath 'powerplan.txt') -Encoding utf8
+    } else {
+      Write-Verbose -Message 'Power plan snapshot skipped (powercfg failed or returned no output).'
+    }
   } catch {
-    Write-Verbose -Message 'Power plan snapshot failed.'
+    Write-Verbose -Message ("Power plan snapshot failed: {0}" -f $_.Exception.Message)
   }
 }
 
@@ -61,19 +71,43 @@ function Restore-UjState {
       $items = Import-CliXml -Path $qosInventory
       foreach ($item in $items) {
         $name = $item.Name
-        $dscp =
-          if ($item.PSObject.Properties.Name -contains 'DSCPAction' -and $null -ne $item.DSCPAction -and [int]$item.DSCPAction -ge 0) { [int]$item.DSCPAction }
-          elseif ($item.PSObject.Properties.Name -contains 'DSCPValue' -and $null -ne $item.DSCPValue -and [int]$item.DSCPValue -ge 0) { [int]$item.DSCPValue }
-          else { 46 }
+        
+        # Safe DSCP value extraction with validation
+        $dscp = 46  # Default fallback
+        try {
+          if ($item.PSObject.Properties.Name -contains 'DSCPAction' -and $null -ne $item.DSCPAction) {
+            $dscpValue = [int]$item.DSCPAction
+            if ($dscpValue -ge 0 -and $dscpValue -le 63) {
+              $dscp = $dscpValue
+            }
+          } elseif ($item.PSObject.Properties.Name -contains 'DSCPValue' -and $null -ne $item.DSCPValue) {
+            $dscpValue = [int]$item.DSCPValue
+            if ($dscpValue -ge 0 -and $dscpValue -le 63) {
+              $dscp = $dscpValue
+            }
+          }
+        } catch {
+          Write-Verbose -Message ("Failed to parse DSCP value for policy {0}, using default 46" -f $name)
+        }
 
         $proto = 'UDP'
         if ($item.PSObject.Properties.Name -contains 'IPProtocolMatchCondition' -and $item.IPProtocolMatchCondition) {
           $proto = [string]$item.IPProtocolMatchCondition
         }
 
-        if ($item.PSObject.Properties.Name -contains 'IPPortMatchCondition' -and [int]$item.IPPortMatchCondition -gt 0) {
-          if ($PSCmdlet.ShouldProcess($name, 'Recreate NetQosPolicy (port-based)')) {
-            New-NetQosPolicy -Name $name -IPPortMatchCondition ([uint16]$item.IPPortMatchCondition) -IPProtocolMatchCondition $proto -DSCPAction ([sbyte]$dscp) -NetworkProfile All | Out-Null
+        # Safe port extraction with validation
+        if ($item.PSObject.Properties.Name -contains 'IPPortMatchCondition') {
+          try {
+            $portValue = [int]$item.IPPortMatchCondition
+            if ($portValue -gt 0 -and $portValue -le 65535) {
+              if ($PSCmdlet.ShouldProcess($name, 'Recreate NetQosPolicy (port-based)')) {
+                New-NetQosPolicy -Name $name -IPPortMatchCondition ([uint16]$portValue) -IPProtocolMatchCondition $proto -DSCPAction ([sbyte]$dscp) -NetworkProfile All | Out-Null
+              }
+            } else {
+              Write-Verbose -Message ("Invalid port value {0} for policy {1}, skipping" -f $portValue, $name)
+            }
+          } catch {
+            Write-Verbose -Message ("Failed to parse port value for policy {0}, skipping" -f $name)
           }
           continue
         }
@@ -98,14 +132,18 @@ function Restore-UjState {
       foreach ($adapter in $adapters) {
         foreach ($property in ($data | Where-Object { $_.Adapter -eq $adapter })) {
           try {
-            if ($property.DisplayName -and $property.DisplayValue) {
+            # Check for DisplayName/DisplayValue (allow empty strings and "0" as valid values)
+            if ($property.DisplayName -and [string]::IsNullOrEmpty($property.DisplayName) -eq $false -and 
+                $null -ne $property.DisplayValue -and [string]::IsNullOrEmpty([string]$property.DisplayValue) -eq $false) {
               if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property: {0}" -f $property.DisplayName))) {
                 Set-NetAdapterAdvancedProperty -Name $adapter -DisplayName $property.DisplayName -DisplayValue $property.DisplayValue -NoRestart -ErrorAction Stop | Out-Null
               }
               continue
             }
 
-            if ($property.RegistryKeyword -and $null -ne $property.RegistryValue) {
+            # Check for RegistryKeyword/RegistryValue (allow 0 as valid numeric value)
+            if ($property.RegistryKeyword -and [string]::IsNullOrEmpty($property.RegistryKeyword) -eq $false -and 
+                $null -ne $property.RegistryValue) {
               if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property keyword: {0}" -f $property.RegistryKeyword))) {
                 Set-NetAdapterAdvancedProperty -Name $adapter -RegistryKeyword $property.RegistryKeyword -RegistryValue $property.RegistryValue -NoRestart -ErrorAction Stop | Out-Null
               }
@@ -125,7 +163,10 @@ function Restore-UjState {
   if (Test-Path -Path $rscFile) {
     try {
       foreach ($row in (Import-Csv -Path $rscFile)) {
-        $enable = ($row.IPv4Enabled -eq 'True' -or $row.IPv6Enabled -eq 'True')
+        # Case-insensitive comparison for CSV boolean values
+        $ipv4Enabled = [string]$row.IPv4Enabled -ieq 'True'
+        $ipv6Enabled = [string]$row.IPv6Enabled -ieq 'True'
+        $enable = $ipv4Enabled -or $ipv6Enabled
         if ($enable) {
           if ($PSCmdlet.ShouldProcess($row.Name, 'Enable NetAdapterRsc')) {
             Enable-NetAdapterRsc -Name $row.Name -ErrorAction SilentlyContinue | Out-Null
@@ -442,7 +483,7 @@ function Reset-UjBaseline {
 
   $mmKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
   $afdKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\AFD\Parameters'
-  $gamesKey = Join-Path -Path $mmKey -ChildPath 'Tasks\\Games'
+  $gamesKey = Join-Path -Path $mmKey -ChildPath 'Tasks\Games'
   $qosRegKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\QoS'
 
   if (-not $DryRun -and $PSCmdlet.ShouldProcess($mmKey, 'Remove registry tweaks')) {
