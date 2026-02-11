@@ -71,7 +71,7 @@ function Restore-UjState {
       $items = Import-CliXml -Path $qosInventory
       foreach ($item in $items) {
         $name = $item.Name
-        
+
         # Safe DSCP value extraction with validation
         $dscp = 46  # Default fallback
         try {
@@ -146,7 +146,7 @@ function Restore-UjState {
             }
 
             # Check for RegistryKeyword/RegistryValue (allow 0 as valid numeric value)
-            if ($property.RegistryKeyword -and [string]::IsNullOrEmpty($property.RegistryKeyword) -eq $false -and 
+            if ($property.RegistryKeyword -and [string]::IsNullOrEmpty($property.RegistryKeyword) -eq $false -and
                 $null -ne $property.RegistryValue) {
               if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property keyword: {0}" -f $property.RegistryKeyword))) {
                 Set-NetAdapterAdvancedProperty -Name $adapter -RegistryKeyword $property.RegistryKeyword -RegistryValue $property.RegistryValue -NoRestart -ErrorAction Stop | Out-Null
