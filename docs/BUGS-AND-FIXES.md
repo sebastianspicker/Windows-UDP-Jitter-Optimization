@@ -138,8 +138,6 @@ List derived from documentation, known limitations, and operations. Each item ca
 
 **Fix:** Use a pattern that accepts GUID with or without braces; if no GUID found, emit a warning and do not report “Restore complete” for power plan.
 
-**Sources:** `02-backup-restore.md`
-
 ---
 
 ### 16. [Bug] Set-UjGameDvrState uses invalid parameter and will throw
@@ -198,8 +196,6 @@ List derived from documentation, known limitations, and operations. Each item ca
 
 **Fix:** Add an entry-point or function-level cap (e.g. max range 500) with a clear error, or require an explicit “allow large range” flag; document the risk.
 
-**Sources:** `01-public-api.md`, `03-qos-networking.md`
-
 ---
 
 ### 23. [Bug] Set-UjPowerPlan Ultimate: duplicate-scheme output not used
@@ -215,8 +211,6 @@ List derived from documentation, known limitations, and operations. Each item ca
 **Description:** Export-Csv/Import-Csv round-trip values as strings; non-scalar or enum values can become wrong. Restore treats empty string RegistryValue as valid because `$null -ne $property.RegistryValue` is true for `''`.
 
 **Fix:** For restore, treat empty string RegistryValue as invalid (e.g. require non-empty or explicit “clear” sentinel). Document CSV limitations for complex property values.
-
-**Sources:** `02-backup-restore.md`
 
 ---
 
