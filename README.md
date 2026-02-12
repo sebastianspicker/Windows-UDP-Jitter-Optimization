@@ -103,25 +103,21 @@ Examples:
 - The script restores MMCSS/AFD registry from .reg snapshots, re‑creates QoS from inventory, restores NIC advanced settings and RSC state, and switches back to the saved power plan.
 - A reboot may be needed for registry settings to fully re‑apply, particularly AFD/MMCSS changes.
 
-## Testing / QA
-These checks are offline and can be run on any platform (they do not apply system tweaks).
+## Validation (build / run / test)
 
-```powershell
-pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer,Pester -Scope CurrentUser -Force'
-pwsh -NoProfile -Command 'Invoke-ScriptAnalyzer -Path . -Recurse'
-pwsh -NoProfile -Command 'Invoke-Pester -Path ./tests -CI'
-```
+All commands are run from the repository root. Tests and lint are offline and do not change the system.
 
-Shortcut (runs the same checks as CI):
-`./scripts/ci-local.sh`
+| Command | Description |
+|--------|-------------|
+| **Lint** | `pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser -Force; Invoke-ScriptAnalyzer -Path . -Recurse'` |
+| **Tests** | `pwsh -NoProfile -Command 'Install-Module Pester -Scope CurrentUser -Force; Invoke-Pester -Path ./tests -CI'` |
+| **Full CI** | `./scripts/ci-local.sh` (same as GitHub Actions) |
+| **Run (dry run)** | `pwsh -NoProfile -ExecutionPolicy Bypass -File ./optimize-udp-jitter.ps1 -Action Apply -Preset 1 -DryRun` |
 
-## Development
-- See `docs/RUNBOOK.md` for setup, fast loop, and full loop commands.
-- Lint: `pwsh -NoProfile -Command 'Invoke-ScriptAnalyzer -Path . -Recurse'`
-- Tests: `pwsh -NoProfile -Command 'Invoke-Pester -Path ./tests -CI'`
+There is no build step; the module is loaded directly from source. See `CONTRIBUTING.md` for prerequisites and `docs/BUGS-AND-FIXES.md` for known issues and required fixes.
 
 ## CI
-GitHub Actions runs PSScriptAnalyzer and Pester on pull requests.
+GitHub Actions runs PSScriptAnalyzer and Pester on `push` and `pull_request`.
 
 ## Security
 - Do not include secrets, tokens, or sensitive system data in issues or logs.

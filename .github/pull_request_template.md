@@ -10,5 +10,5 @@
 - [ ] Changes are limited to docs/CI/templates
 
 ## Checklist
-- [ ] README/RUNBOOK updated if behavior or commands changed
+- [ ] README updated if behavior or commands changed
 - [ ] No secrets or sensitive data included
