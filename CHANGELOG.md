@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - CHANGELOG.md for change history.
 - `Private/Constants.ps1`: central registry paths, backup file names, default DSCP, NIC reset display names.
-- `Get-UjPhysicalUpAdapters` helper in Nic.ps1 for consistent "physical up" adapter usage.
+- `Get-UjPhysicalUpAdapter` helper in Nic.ps1 for consistent "physical up" adapter usage.
 - Restore helpers: `Restore-UjRegistryFromBackup`, `Restore-UjQosFromBackup`, `Restore-UjNicFromBackup`, `Restore-UjRscFromBackup`, `Restore-UjPowerPlanFromBackup`; `Restore-UjState` now orchestrates these.
 - Comment-based help for `Invoke-UdpJitterOptimization` and for `optimize-udp-jitter.ps1`.
 - `-SkipAdminCheck` parameter on root script `optimize-udp-jitter.ps1` for script/module parity.

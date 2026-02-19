@@ -1,4 +1,4 @@
-function Get-UjPhysicalUpAdapters {
+function Get-UjPhysicalUpAdapter {
   [CmdletBinding()]
   [OutputType([Microsoft.PowerShell.Cmdletization.GeneratedTypes.NetAdapter.NetAdapter[]])]
   param()
@@ -55,7 +55,7 @@ function Set-UjNicConfiguration {
   )
 
   try {
-    $adapters = Get-UjPhysicalUpAdapters
+    $adapters = Get-UjPhysicalUpAdapter
   } catch {
     Write-Warning -Message ("Get-NetAdapter failed: {0}" -f $_.Exception.Message)
     return

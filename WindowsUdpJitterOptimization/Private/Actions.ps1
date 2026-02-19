@@ -31,7 +31,7 @@ function Backup-UjState {
   }
 
   try {
-    $rows = foreach ($n in (Get-UjPhysicalUpAdapters)) {
+    $rows = foreach ($n in (Get-UjPhysicalUpAdapter)) {
       Get-NetAdapterAdvancedProperty -Name $n.Name |
         Select-Object @{ Name = 'Adapter'; Expression = { $n.Name } }, DisplayName, RegistryKeyword, DisplayValue, RegistryValue
     }
@@ -123,7 +123,9 @@ function Restore-UjQosFromBackup {
           }
           $portHandled = $true
         }
-      } catch { }
+      } catch {
+        Write-Verbose -Message ("Failed to parse port for policy {0}" -f $name)
+      }
     }
     if (-not $portHandled -and $item.PSObject.Properties.Name -contains 'AppPathNameMatchCondition' -and $item.AppPathNameMatchCondition) {
       if ($PSCmdlet.ShouldProcess($name, 'Recreate NetQosPolicy (app-based)')) {
@@ -511,7 +513,7 @@ function Show-UjSummary {
 
   Write-UjInformation -Message "`nNIC Key Properties (subset):"
   try {
-    foreach ($nic in (Get-UjPhysicalUpAdapters)) {
+    foreach ($nic in (Get-UjPhysicalUpAdapter)) {
       Get-NetAdapterAdvancedProperty -Name $nic.Name |
         Where-Object { $_.DisplayName -match 'Energy|Interrupt|Flow|Offload|Large Send|Jumbo|Wake|Power|Green|NS|ARP|ITR|Buffer' } |
         Sort-Object -Property DisplayName |
@@ -553,7 +555,7 @@ function Reset-UjBaseline {
     Write-UjInformation -Message '[DryRun] Reset NIC advanced properties and re-enable RSC.'
   } else {
     try {
-      $adapters = Get-UjPhysicalUpAdapters
+      $adapters = Get-UjPhysicalUpAdapter
     } catch {
       Write-Warning -Message ("Get-NetAdapter failed during reset: {0}" -f $_.Exception.Message)
       $adapters = @()
