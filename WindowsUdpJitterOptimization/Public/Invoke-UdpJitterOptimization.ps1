@@ -1,4 +1,33 @@
 function Invoke-UdpJitterOptimization {
+  <#
+  .SYNOPSIS
+    Applies, backs up, restores, or resets UDP jitter optimization settings on Windows 10/11.
+
+  .DESCRIPTION
+    Applies preset-based UDP jitter optimizations (QoS DSCP, NIC tuning, AFD, MMCSS, URO, power plan, Game DVR),
+    or backs up/restores state, or resets to baseline. Requires elevation unless -SkipAdminCheck is used.
+
+  .PARAMETER Action
+    Apply, Backup, Restore, or ResetDefaults.
+
+  .PARAMETER Preset
+    Risk level 1 (Conservative), 2 (Medium), 3 (Higher risk). Used when Action is Apply.
+
+  .PARAMETER BackupFolder
+    Directory for backup/restore files. Default: $env:ProgramData\UDPTune.
+
+  .PARAMETER DryRun
+    Print what would be done without making changes.
+
+  .PARAMETER SkipAdminCheck
+    Skip administrator privilege check.
+
+  .EXAMPLE
+    Invoke-UdpJitterOptimization -Action Apply -Preset 2 -WhatIf
+
+  .EXAMPLE
+    Invoke-UdpJitterOptimization -Action Backup -BackupFolder C:\MyBackup
+  #>
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
   param(
     [Parameter()]
@@ -74,16 +103,18 @@ function Invoke-UdpJitterOptimization {
     throw 'BackupFolder must not be empty.'
   }
 
-  New-UjDirectory -Path $BackupFolder | Out-Null
+  if (-not $DryRun -and $Action -in @('Backup', 'Restore', 'Apply')) {
+    New-UjDirectory -Path $BackupFolder | Out-Null
+  }
 
   if ($Action -eq 'Backup') {
-    Backup-UjState -BackupFolder $BackupFolder
+    Backup-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
     Write-UjInformation -Message 'Backup complete.'
     return
   }
 
   if ($Action -eq 'Restore') {
-    Restore-UjState -BackupFolder $BackupFolder
+    Restore-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
     Write-UjInformation -Message 'Restore complete. A reboot may be required.'
     return
   }
@@ -102,8 +133,8 @@ function Invoke-UdpJitterOptimization {
 
   Enable-UjLocalQosMarking -DryRun:$DryRun
 
-  New-UjDscpPolicyByPort -Name ("QoS_UDP_TS_{0}" -f $TeamSpeakPort) -PortStart $TeamSpeakPort -PortEnd $TeamSpeakPort -Dscp 46 -DryRun:$DryRun
-  New-UjDscpPolicyByPort -Name ("QoS_UDP_CS2_{0}_{1}" -f $CS2PortStart, $CS2PortEnd) -PortStart $CS2PortStart -PortEnd $CS2PortEnd -Dscp 46 -DryRun:$DryRun
+  New-UjDscpPolicyByPort -Name ("QoS_UDP_TS_{0}" -f $TeamSpeakPort) -PortStart $TeamSpeakPort -PortEnd $TeamSpeakPort -Dscp $script:UjDefaultDscp -DryRun:$DryRun
+  New-UjDscpPolicyByPort -Name ("QoS_UDP_CS2_{0}_{1}" -f $CS2PortStart, $CS2PortEnd) -PortStart $CS2PortStart -PortEnd $CS2PortEnd -Dscp $script:UjDefaultDscp -DryRun:$DryRun
 
   if ($IncludeAppPolicies -and $null -ne $AppPaths -and $AppPaths.Count -gt 0) {
     $i = 0
@@ -112,7 +143,7 @@ function Invoke-UdpJitterOptimization {
         continue
       }
       $i++
-      New-UjDscpPolicyByApp -Name ('QoS_APP_{0}' -f $i) -ExePath $path -Dscp 46 -DryRun:$DryRun
+      New-UjDscpPolicyByApp -Name ('QoS_APP_{0}' -f $i) -ExePath $path -Dscp $script:UjDefaultDscp -DryRun:$DryRun
     }
   }
 

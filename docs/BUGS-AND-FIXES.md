@@ -2,6 +2,8 @@
 
 List derived from documentation, known limitations, and operations. Each item can be turned into a separate issue.
 
+**Implementation status:** Many items below have been addressed in the codebase (see CHANGELOG.md). This document is retained as an audit reference; for current behavior and remaining limitations, see CHANGELOG and README.
+
 ---
 
 ## Known Limitations / Bugs
@@ -92,9 +94,9 @@ List derived from documentation, known limitations, and operations. Each item ca
 
 ### 10. [Enhancement] Deprecated wrappers: parameters and common params
 
-**Description:** Deprecated `optimize-udp-jitter.ps1` has an empty `param()` and forwards only `$args`, so named parameters and common parameters (-Verbose, -WhatIf, etc.) are not forwarded. Deprecated `reset-udp-jitter.ps1` does not support ShouldProcess and only passes -Action ResetDefaults -DryRun.
+**Description:** The script `reset-udp-jitter.ps1` was historically deprecated/removed from the repo; only `optimize-udp-jitter.ps1` remains as the main entry point. The root script declares full parameters and forwards `@PSBoundParameters`; for full parity it should also expose `SkipAdminCheck` so module and script behave identically.
 
-**Fix:** Either declare the same parameters as the root script and pass them through, or document that deprecated scripts only support positional/args and no common params. Prefer parity with the main entry point for safety.
+**Fix:** Add `SkipAdminCheck` to the root script's param block and pass it through. No separate reset script in repo.
 
 ---
 

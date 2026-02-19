@@ -6,6 +6,7 @@ function Get-UjManagedQosPolicy {
   try {
     Get-NetQosPolicy -ErrorAction Stop | Where-Object { $_.Name -like 'QoS_*' }
   } catch {
+    Write-Warning -Message ("Get-NetQosPolicy failed: {0}. Treat as no managed policies." -f $_.Exception.Message)
     return
   }
 }
@@ -43,7 +44,7 @@ function New-UjDscpPolicyByPort {
 
     [Parameter()]
     [ValidateRange(0, 63)]
-    [sbyte]$Dscp = 46,
+    [sbyte]$Dscp = $script:UjDefaultDscp,
 
     [Parameter()]
     [switch]$DryRun
@@ -100,7 +101,7 @@ function New-UjDscpPolicyByApp {
 
     [Parameter()]
     [ValidateRange(0, 63)]
-    [sbyte]$Dscp = 46,
+    [sbyte]$Dscp = $script:UjDefaultDscp,
 
     [Parameter()]
     [switch]$DryRun

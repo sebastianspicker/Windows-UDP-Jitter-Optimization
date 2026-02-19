@@ -1,11 +1,31 @@
 <#
-Title: UDP Jitter Optimization (Windows 10/11) - Safe Defaults with Tiered Risk + Full Failsafe
-Author: Sebastian J. Spicker
-License: MIT
+.SYNOPSIS
+  Applies or restores UDP jitter optimizations on Windows 10/11 (thin wrapper around the module).
 
-This script is a thin wrapper around the module in ./WindowsUdpJitterOptimization.
+.DESCRIPTION
+  This script imports the WindowsUdpJitterOptimization module from the same directory
+  and invokes Invoke-UdpJitterOptimization with the same parameters. Use -Action Apply
+  to apply a preset, Backup/Restore for state, or ResetDefaults to restore baseline.
+
+.PARAMETER Action
+  Apply, Backup, Restore, or ResetDefaults.
+
+.PARAMETER Preset
+  Risk level 1 (Conservative), 2 (Medium), or 3 (Higher risk). Only used when Action is Apply.
+
+.PARAMETER SkipAdminCheck
+  Skip the administrator privilege check (e.g. for testing or constrained environments).
+
+.EXAMPLE
+  .\optimize-udp-jitter.ps1 -Action Apply -Preset 2 -WhatIf
+
+.EXAMPLE
+  .\optimize-udp-jitter.ps1 -Action Backup -BackupFolder C:\MyBackup
+
+.NOTES
+  Author: Sebastian J. Spicker
+  License: MIT
 #>
-
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
   [ValidateSet('Apply', 'Backup', 'Restore', 'ResetDefaults')]
@@ -39,7 +59,9 @@ param(
 
   [string]$BackupFolder = (Join-Path -Path $env:ProgramData -ChildPath 'UDPTune'),
 
-  [switch]$DryRun
+  [switch]$DryRun,
+
+  [switch]$SkipAdminCheck
 )
 
 Set-StrictMode -Version Latest

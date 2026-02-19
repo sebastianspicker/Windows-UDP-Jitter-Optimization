@@ -1,3 +1,11 @@
+function Get-UjPhysicalUpAdapters {
+  [CmdletBinding()]
+  [OutputType([Microsoft.PowerShell.Cmdletization.GeneratedTypes.NetAdapter.NetAdapter[]])]
+  param()
+
+  Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' }
+}
+
 function Set-UjNicAdvancedPropertyIfSupported {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
   param(
@@ -47,7 +55,7 @@ function Set-UjNicConfiguration {
   )
 
   try {
-    $adapters = Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' }
+    $adapters = Get-UjPhysicalUpAdapters
   } catch {
     Write-Warning -Message ("Get-NetAdapter failed: {0}" -f $_.Exception.Message)
     return

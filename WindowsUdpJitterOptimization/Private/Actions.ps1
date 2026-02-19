@@ -2,19 +2,27 @@ function Backup-UjState {
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)]
-    [string]$BackupFolder
+    [string]$BackupFolder,
+
+    [Parameter()]
+    [switch]$DryRun
   )
 
   Write-UjInformation -Message 'Backing up current state ...'
+  if ($DryRun) {
+    Write-UjInformation -Message '[DryRun] Skip backup (no writes).'
+    return
+  }
+
   New-UjDirectory -Path $BackupFolder | Out-Null
 
-  Export-UjRegistryKey -RegistryPath 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile' -OutFile (Join-Path -Path $BackupFolder -ChildPath 'SystemProfile.reg')
-  Export-UjRegistryKey -RegistryPath 'HKLM\SYSTEM\CurrentControlSet\Services\AFD\Parameters' -OutFile (Join-Path -Path $BackupFolder -ChildPath 'AFD_Parameters.reg')
+  Export-UjRegistryKey -RegistryPath $script:UjRegistryPathSystemProfileReg -OutFile (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileSystemProfile)
+  Export-UjRegistryKey -RegistryPath $script:UjRegistryPathAfdParametersReg -OutFile (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileAfdParameters)
 
   try {
     $policies = Get-UjManagedQosPolicy
     if ($policies) {
-      $policies | Export-CliXml -Path (Join-Path -Path $BackupFolder -ChildPath 'qos_ours.xml')
+      $policies | Export-CliXml -Path (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileQosOurs)
     } else {
       Write-Verbose -Message 'No QoS policies found to backup.'
     }
@@ -23,18 +31,18 @@ function Backup-UjState {
   }
 
   try {
-    $rows = foreach ($n in (Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' })) {
+    $rows = foreach ($n in (Get-UjPhysicalUpAdapters)) {
       Get-NetAdapterAdvancedProperty -Name $n.Name |
         Select-Object @{ Name = 'Adapter'; Expression = { $n.Name } }, DisplayName, RegistryKeyword, DisplayValue, RegistryValue
     }
-    $rows | Export-Csv -NoTypeInformation -Path (Join-Path -Path $BackupFolder -ChildPath 'nic_advanced_backup.csv')
+    $rows | Export-Csv -NoTypeInformation -Path (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileNicAdvanced)
   } catch {
     Write-Warning -Message 'NIC advanced snapshot failed.'
   }
 
   try {
     Get-NetAdapterRsc | Select-Object Name, IPv4Enabled, IPv6Enabled |
-      Export-Csv -NoTypeInformation -Path (Join-Path -Path $BackupFolder -ChildPath 'rsc_backup.csv')
+      Export-Csv -NoTypeInformation -Path (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileRsc)
   } catch {
     Write-Verbose -Message 'RSC snapshot failed.'
   }
@@ -42,7 +50,16 @@ function Backup-UjState {
   try {
     $powerPlanOutput = & powercfg /GetActiveScheme 2>&1
     if ($LASTEXITCODE -eq 0 -and $powerPlanOutput) {
-      $powerPlanOutput -join "`n" | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath 'powerplan.txt') -Encoding utf8
+      $text = $powerPlanOutput -join "`n"
+      # Normalize: extract GUID (with or without braces) and write with braces for consistent restore
+      $guid = $null
+      if ($text -match '\{([0-9a-fA-F-]+)\}') { $guid = $Matches[0] }
+      elseif ($text -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { $guid = '{' + $Matches[1] + '}' }
+      if ($guid) {
+        $guid | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFilePowerplan) -Encoding utf8 -NoNewline
+      } else {
+        $text | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFilePowerplan) -Encoding utf8
+      }
     } else {
       Write-Verbose -Message 'Power plan snapshot skipped (powercfg failed or returned no output).'
     }
@@ -51,159 +68,170 @@ function Backup-UjState {
   }
 }
 
+function Restore-UjRegistryFromBackup {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  param([Parameter(Mandatory)][string]$BackupFolder)
+
+  $systemProfileReg = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileSystemProfile
+  if ($PSCmdlet.ShouldProcess($systemProfileReg, 'Import registry file')) {
+    Import-UjRegistryFile -InFile $systemProfileReg | Out-Null
+  }
+  $afdReg = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileAfdParameters
+  if ($PSCmdlet.ShouldProcess($afdReg, 'Import registry file')) {
+    Import-UjRegistryFile -InFile $afdReg | Out-Null
+  }
+}
+
+function Restore-UjQosFromBackup {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  param([Parameter(Mandatory)][string]$BackupFolder)
+
+  $qosInventory = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileQosOurs
+  $qosItems = $null
+  if (Test-Path -Path $qosInventory) {
+    try { $qosItems = Import-CliXml -Path $qosInventory } catch {
+      Write-Warning -Message ("QoS restore skipped: could not import/parse {0}. {1}" -f $qosInventory, $_.Exception.Message)
+      return
+    }
+  } else {
+    Write-Verbose -Message 'No QoS backup file found; skipping QoS restore.'
+    return
+  }
+
+  if ($PSCmdlet.ShouldProcess('Managed QoS policies', 'Remove before restore')) {
+    Remove-UjManagedQosPolicy
+  }
+
+  foreach ($item in $qosItems) {
+    $name = $item.Name
+    $dscp = $script:UjDefaultDscp
+    try {
+      if ($item.PSObject.Properties.Name -contains 'DSCPAction' -and $null -ne $item.DSCPAction) { $dscpValue = [int]$item.DSCPAction; if ($dscpValue -ge 0 -and $dscpValue -le 63) { $dscp = $dscpValue } }
+      elseif ($item.PSObject.Properties.Name -contains 'DSCPValue' -and $null -ne $item.DSCPValue) { $dscpValue = [int]$item.DSCPValue; if ($dscpValue -ge 0 -and $dscpValue -le 63) { $dscp = $dscpValue } }
+    } catch { Write-Verbose -Message ("Failed to parse DSCP for policy {0}, using default" -f $name) }
+    $proto = 'UDP'
+    if ($item.PSObject.Properties.Name -contains 'IPProtocolMatchCondition' -and $item.IPProtocolMatchCondition) { $proto = [string]$item.IPProtocolMatchCondition }
+
+    $portHandled = $false
+    if ($item.PSObject.Properties.Name -contains 'IPPortMatchCondition') {
+      try {
+        $portValue = [int]$item.IPPortMatchCondition
+        if ($portValue -gt 0 -and $portValue -le 65535) {
+          if ($PSCmdlet.ShouldProcess($name, 'Recreate NetQosPolicy (port-based)')) {
+            try { New-NetQosPolicy -Name $name -IPPortMatchCondition ([uint16]$portValue) -IPProtocolMatchCondition $proto -DSCPAction ([sbyte]$dscp) -NetworkProfile All | Out-Null }
+            catch { Write-Warning -Message ("QoS policy '{0}' (port-based) failed: {1}" -f $name, $_.Exception.Message) }
+          }
+          $portHandled = $true
+        }
+      } catch { }
+    }
+    if (-not $portHandled -and $item.PSObject.Properties.Name -contains 'AppPathNameMatchCondition' -and $item.AppPathNameMatchCondition) {
+      if ($PSCmdlet.ShouldProcess($name, 'Recreate NetQosPolicy (app-based)')) {
+        try { New-NetQosPolicy -Name $name -AppPathNameMatchCondition ([string]$item.AppPathNameMatchCondition) -DSCPAction ([sbyte]$dscp) -NetworkProfile All | Out-Null }
+        catch { Write-Warning -Message ("QoS policy '{0}' (app-based) failed: {1}" -f $name, $_.Exception.Message) }
+      }
+    }
+  }
+}
+
+function Restore-UjNicFromBackup {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  param([Parameter(Mandatory)][string]$BackupFolder)
+
+  $csv = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileNicAdvanced
+  if (-not (Test-Path -Path $csv)) { return }
+  try {
+    $data = Import-Csv -Path $csv
+    $firstRow = $data | Select-Object -First 1
+    if (-not $firstRow -or -not ($firstRow.PSObject.Properties.Name -contains 'Adapter')) {
+      Write-Warning -Message 'NIC advanced restore skipped: CSV missing or invalid (no Adapter column).'
+      return
+    }
+    $adapters = $data | Select-Object -ExpandProperty Adapter -Unique
+    foreach ($adapter in $adapters) {
+      foreach ($property in ($data | Where-Object { $_.Adapter -eq $adapter })) {
+        try {
+          if ($property.PSObject.Properties.Name -contains 'DisplayName' -and [string]::IsNullOrEmpty($property.DisplayName) -eq $false -and $property.PSObject.Properties.Name -contains 'DisplayValue') {
+            if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property: {0}" -f $property.DisplayName))) {
+              Set-NetAdapterAdvancedProperty -Name $adapter -DisplayName $property.DisplayName -DisplayValue $property.DisplayValue -NoRestart -ErrorAction Stop | Out-Null
+            }
+            continue
+          }
+          if ($property.RegistryKeyword -and [string]::IsNullOrEmpty($property.RegistryKeyword) -eq $false -and [string]::IsNullOrEmpty($property.RegistryValue) -eq $false) {
+            if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property keyword: {0}" -f $property.RegistryKeyword))) {
+              Set-NetAdapterAdvancedProperty -Name $adapter -RegistryKeyword $property.RegistryKeyword -RegistryValue $property.RegistryValue -NoRestart -ErrorAction Stop | Out-Null
+            }
+            continue
+          }
+        } catch { Write-Verbose -Message ("NIC property restore failed: {0} ({1})" -f $adapter, $property.DisplayName) }
+      }
+    }
+  } catch { Write-Warning -Message 'NIC advanced restore error.' }
+}
+
+function Restore-UjRscFromBackup {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  param([Parameter(Mandatory)][string]$BackupFolder)
+
+  $rscFile = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileRsc
+  if (-not (Test-Path -Path $rscFile)) { return }
+  try {
+    foreach ($row in (Import-Csv -Path $rscFile)) {
+      $ipv4Enabled = [string]$row.IPv4Enabled -ieq 'True'
+      $ipv6Enabled = [string]$row.IPv6Enabled -ieq 'True'
+      $enable = $ipv4Enabled -or $ipv6Enabled
+      if ($enable) {
+        if ($PSCmdlet.ShouldProcess($row.Name, 'Enable NetAdapterRsc')) { Enable-NetAdapterRsc -Name $row.Name -ErrorAction SilentlyContinue | Out-Null }
+      } else {
+        if ($PSCmdlet.ShouldProcess($row.Name, 'Disable NetAdapterRsc')) { Disable-NetAdapterRsc -Name $row.Name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }
+      }
+    }
+  } catch { Write-Verbose -Message 'RSC restore failed.' }
+}
+
+function Restore-UjPowerPlanFromBackup {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  param([Parameter(Mandatory)][string]$BackupFolder)
+
+  $powerPlanFile = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFilePowerplan
+  if (-not (Test-Path -Path $powerPlanFile)) { return }
+  $text = Get-Content -Path $powerPlanFile -Raw
+  $guid = $null
+  if ($text -match '\{([0-9a-fA-F-]+)\}') { $guid = $Matches[0] }
+  elseif ($text -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { $guid = $Matches[1] }
+  if (-not $guid) {
+    Write-Warning -Message 'Power plan restore skipped: no valid GUID found in powerplan.txt.'
+    return
+  }
+  if ($PSCmdlet.ShouldProcess($guid, 'Restore power plan')) {
+    try {
+      $null = & powercfg /S $guid 2>&1
+      if ($LASTEXITCODE -ne 0) { Write-Warning -Message ("Power plan restore failed (powercfg /S exited with {0})." -f $LASTEXITCODE) }
+    } catch { Write-Verbose -Message ("Power plan restore failed: {0}" -f $_.Exception.Message) }
+  }
+}
+
 function Restore-UjState {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
   param(
     [Parameter(Mandatory)]
-    [string]$BackupFolder
+    [string]$BackupFolder,
+
+    [Parameter()]
+    [switch]$DryRun
   )
 
   Write-UjInformation -Message 'Restoring previous state ...'
-
-  Import-UjRegistryFile -InFile (Join-Path -Path $BackupFolder -ChildPath 'SystemProfile.reg')
-  Import-UjRegistryFile -InFile (Join-Path -Path $BackupFolder -ChildPath 'AFD_Parameters.reg')
-
-  Remove-UjManagedQosPolicy
-
-  $qosInventory = Join-Path -Path $BackupFolder -ChildPath 'qos_ours.xml'
-  if (Test-Path -Path $qosInventory) {
-    try {
-      $items = Import-CliXml -Path $qosInventory
-      foreach ($item in $items) {
-        $name = $item.Name
-
-        # Safe DSCP value extraction with validation
-        $dscp = 46  # Default fallback
-        try {
-          if ($item.PSObject.Properties.Name -contains 'DSCPAction' -and $null -ne $item.DSCPAction) {
-            $dscpValue = [int]$item.DSCPAction
-            if ($dscpValue -ge 0 -and $dscpValue -le 63) {
-              $dscp = $dscpValue
-            }
-          } elseif ($item.PSObject.Properties.Name -contains 'DSCPValue' -and $null -ne $item.DSCPValue) {
-            $dscpValue = [int]$item.DSCPValue
-            if ($dscpValue -ge 0 -and $dscpValue -le 63) {
-              $dscp = $dscpValue
-            }
-          }
-        } catch {
-          Write-Verbose -Message ("Failed to parse DSCP value for policy {0}, using default 46" -f $name)
-        }
-
-        $proto = 'UDP'
-        if ($item.PSObject.Properties.Name -contains 'IPProtocolMatchCondition' -and $item.IPProtocolMatchCondition) {
-          $proto = [string]$item.IPProtocolMatchCondition
-        }
-
-        # Safe port extraction with validation
-        if ($item.PSObject.Properties.Name -contains 'IPPortMatchCondition') {
-          try {
-            $portValue = [int]$item.IPPortMatchCondition
-            if ($portValue -gt 0 -and $portValue -le 65535) {
-              if ($PSCmdlet.ShouldProcess($name, 'Recreate NetQosPolicy (port-based)')) {
-                New-NetQosPolicy -Name $name -IPPortMatchCondition ([uint16]$portValue) -IPProtocolMatchCondition $proto -DSCPAction ([sbyte]$dscp) -NetworkProfile All | Out-Null
-              }
-            } else {
-              Write-Verbose -Message ("Invalid port value {0} for policy {1}, skipping" -f $portValue, $name)
-            }
-          } catch {
-            Write-Verbose -Message ("Failed to parse port value for policy {0}, skipping" -f $name)
-          }
-          continue
-        }
-
-        if ($item.PSObject.Properties.Name -contains 'AppPathNameMatchCondition' -and $item.AppPathNameMatchCondition) {
-          if ($PSCmdlet.ShouldProcess($name, 'Recreate NetQosPolicy (app-based)')) {
-            New-NetQosPolicy -Name $name -AppPathNameMatchCondition ([string]$item.AppPathNameMatchCondition) -DSCPAction ([sbyte]$dscp) -NetworkProfile All | Out-Null
-          }
-          continue
-        }
-      }
-    } catch {
-      Write-Warning -Message 'QoS restore skipped (import/parse failed).'
-    }
+  if ($DryRun) {
+    Write-UjInformation -Message '[DryRun] Skip restore (no writes).'
+    return
   }
 
-  $csv = Join-Path -Path $BackupFolder -ChildPath 'nic_advanced_backup.csv'
-  if (Test-Path -Path $csv) {
-    try {
-      $data = Import-Csv -Path $csv
-      $firstRow = $data | Select-Object -First 1
-      if (-not $firstRow -or -not ($firstRow.PSObject.Properties.Name -contains 'Adapter')) {
-        Write-Warning -Message 'NIC advanced restore skipped: CSV missing or invalid (no Adapter column).'
-      } else {
-      $adapters = $data | Select-Object -ExpandProperty Adapter -Unique
-      foreach ($adapter in $adapters) {
-        foreach ($property in ($data | Where-Object { $_.Adapter -eq $adapter })) {
-          try {
-            # Check for DisplayName/DisplayValue (allow empty string as valid when property exists)
-            if ($property.PSObject.Properties.Name -contains 'DisplayName' -and [string]::IsNullOrEmpty($property.DisplayName) -eq $false -and
-                $property.PSObject.Properties.Name -contains 'DisplayValue') {
-              if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property: {0}" -f $property.DisplayName))) {
-                Set-NetAdapterAdvancedProperty -Name $adapter -DisplayName $property.DisplayName -DisplayValue $property.DisplayValue -NoRestart -ErrorAction Stop | Out-Null
-              }
-              continue
-            }
-
-            # Check for RegistryKeyword/RegistryValue (allow 0 as valid numeric value)
-            if ($property.RegistryKeyword -and [string]::IsNullOrEmpty($property.RegistryKeyword) -eq $false -and
-                $null -ne $property.RegistryValue) {
-              if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property keyword: {0}" -f $property.RegistryKeyword))) {
-                Set-NetAdapterAdvancedProperty -Name $adapter -RegistryKeyword $property.RegistryKeyword -RegistryValue $property.RegistryValue -NoRestart -ErrorAction Stop | Out-Null
-              }
-              continue
-            }
-          } catch {
-            Write-Verbose -Message ("NIC property restore failed: {0} ({1})" -f $adapter, $property.DisplayName)
-          }
-        }
-      }
-      }
-    } catch {
-      Write-Warning -Message 'NIC advanced restore error.'
-    }
-  }
-
-  $rscFile = Join-Path -Path $BackupFolder -ChildPath 'rsc_backup.csv'
-  if (Test-Path -Path $rscFile) {
-    try {
-      foreach ($row in (Import-Csv -Path $rscFile)) {
-        # Case-insensitive comparison for CSV boolean values
-        $ipv4Enabled = [string]$row.IPv4Enabled -ieq 'True'
-        $ipv6Enabled = [string]$row.IPv6Enabled -ieq 'True'
-        $enable = $ipv4Enabled -or $ipv6Enabled
-        if ($enable) {
-          if ($PSCmdlet.ShouldProcess($row.Name, 'Enable NetAdapterRsc')) {
-            Enable-NetAdapterRsc -Name $row.Name -ErrorAction SilentlyContinue | Out-Null
-          }
-        } else {
-          if ($PSCmdlet.ShouldProcess($row.Name, 'Disable NetAdapterRsc')) {
-            Disable-NetAdapterRsc -Name $row.Name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-          }
-        }
-      }
-    } catch {
-      Write-Verbose -Message 'RSC restore failed.'
-    }
-  }
-
-  $powerPlanFile = Join-Path -Path $BackupFolder -ChildPath 'powerplan.txt'
-  if (Test-Path -Path $powerPlanFile) {
-    $text = Get-Content -Path $powerPlanFile -Raw
-    if ($text -match '{[0-9a-fA-F-]+}') {
-      $guid = $Matches[0]
-      if ($PSCmdlet.ShouldProcess($guid, 'Restore power plan')) {
-        try {
-          $null = & powercfg /S $guid 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning -Message ("Power plan restore failed (powercfg /S exited with {0})." -f $LASTEXITCODE)
-          }
-        } catch {
-          Write-Verbose -Message ("Power plan restore failed: {0}" -f $_.Exception.Message)
-        }
-      }
-    }
-  }
+  Restore-UjRegistryFromBackup -BackupFolder $BackupFolder
+  Restore-UjQosFromBackup -BackupFolder $BackupFolder
+  Restore-UjNicFromBackup -BackupFolder $BackupFolder
+  Restore-UjRscFromBackup -BackupFolder $BackupFolder
+  Restore-UjPowerPlanFromBackup -BackupFolder $BackupFolder
 
   Write-UjInformation -Message 'Restore complete. A reboot may be required for registry-based settings.'
 }
@@ -220,7 +248,7 @@ function Set-UjMmcssAudioSafety {
     return
   }
 
-  $mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+  $mm = $script:UjRegistryPathSystemProfile
   $tasks = Join-Path -Path $mm -ChildPath 'Tasks'
   $audio = Join-Path -Path $tasks -ChildPath 'Audio'
 
@@ -288,7 +316,7 @@ function Enable-UjLocalQosMarking {
     return
   }
 
-  $qos = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\QoS'
+  $qos = $script:UjRegistryPathQos
   if ($PSCmdlet.ShouldProcess($qos, 'Create registry key')) {
     New-Item -Path $qos -Force | Out-Null
   }
@@ -315,7 +343,7 @@ function Set-UjAfdFastSendDatagramThreshold {
     return
   }
 
-  $afd = 'HKLM:\SYSTEM\CurrentControlSet\Services\AFD\Parameters'
+  $afd = $script:UjRegistryPathAfdParameters
   if ($DryRun) {
     Write-UjInformation -Message ("[DryRun] AFD FastSendDatagramThreshold={0}" -f $AfdThreshold)
     return
@@ -344,7 +372,7 @@ function Set-UjUndocumentedNetworkMmcssTuning {
     return
   }
 
-  $mm = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+  $mm = $script:UjRegistryPathSystemProfile
   if ($DryRun) {
     Write-UjInformation -Message '[DryRun] SystemResponsiveness=0; NetworkThrottlingIndex=FFFFFFFF'
     return
@@ -380,9 +408,12 @@ function Set-UjUroState {
   }
 
   try {
-    & netsh @cmd | Out-Null
+    $null = & netsh @cmd 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning -Message ("Setting URO via netsh failed (exit code {0}; may not exist on all builds)." -f $LASTEXITCODE)
+    }
   } catch {
-    Write-Warning -Message 'Setting URO via netsh failed (may not exist on all builds).'
+    Write-Warning -Message ("Setting URO via netsh failed: {0}" -f $_.Exception.Message)
   }
 }
 
@@ -417,7 +448,15 @@ function Set-UjPowerPlan {
 
   if ($PowerPlan -eq 'Ultimate') {
     try {
-      & powercfg /duplicatescheme $guidUlt | Out-Null
+      $dupOut = & powercfg /duplicatescheme $guidUlt 2>&1
+      if ($LASTEXITCODE -eq 0 -and $dupOut) {
+        $dupText = $dupOut -join ' '
+        if ($dupText -match '\{([0-9a-fA-F-]+)\}') {
+          $guid = $Matches[0]
+        } elseif ($dupText -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') {
+          $guid = $Matches[1]
+        }
+      }
     } catch {
       Write-Verbose -Message 'powercfg /duplicatescheme failed.'
     }
@@ -455,8 +494,8 @@ function Set-UjGameDvrState {
     return
   }
 
-  Set-ItemProperty -Path $dvr -Name 'AppCaptureEnabled' -Type DWord -Value $value -Force
-  Set-ItemProperty -Path $dvr -Name 'HistoricalCaptureEnabled' -Type DWord -Value $value -Force
+  Set-ItemProperty -Path $dvr -Name 'AppCaptureEnabled' -PropertyType DWord -Value $value -Force
+  Set-ItemProperty -Path $dvr -Name 'HistoricalCaptureEnabled' -PropertyType DWord -Value $value -Force
 }
 
 function Show-UjSummary {
@@ -472,7 +511,7 @@ function Show-UjSummary {
 
   Write-UjInformation -Message "`nNIC Key Properties (subset):"
   try {
-    foreach ($nic in (Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' })) {
+    foreach ($nic in (Get-UjPhysicalUpAdapters)) {
       Get-NetAdapterAdvancedProperty -Name $nic.Name |
         Where-Object { $_.DisplayName -match 'Energy|Interrupt|Flow|Offload|Large Send|Jumbo|Wake|Power|Green|NS|ARP|ITR|Buffer' } |
         Sort-Object -Property DisplayName |
@@ -492,10 +531,10 @@ function Reset-UjBaseline {
 
   Set-UjPowerPlan -PowerPlan Balanced -DryRun:$DryRun
 
-  $mmKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
-  $afdKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\AFD\Parameters'
+  $mmKey = $script:UjRegistryPathSystemProfile
+  $afdKey = $script:UjRegistryPathAfdParameters
   $gamesKey = Join-Path -Path $mmKey -ChildPath 'Tasks\Games'
-  $qosRegKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\QoS'
+  $qosRegKey = $script:UjRegistryPathQos
 
   if (-not $DryRun -and $PSCmdlet.ShouldProcess($mmKey, 'Remove registry tweaks')) {
     Remove-ItemProperty -Path $mmKey -Name 'NetworkThrottlingIndex' -ErrorAction SilentlyContinue
@@ -514,14 +553,20 @@ function Reset-UjBaseline {
     Write-UjInformation -Message '[DryRun] Reset NIC advanced properties and re-enable RSC.'
   } else {
     try {
-      $adapters = Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' }
+      $adapters = Get-UjPhysicalUpAdapters
     } catch {
       Write-Warning -Message ("Get-NetAdapter failed during reset: {0}" -f $_.Exception.Message)
       $adapters = @()
     }
     foreach ($adapter in $adapters) {
-      if ($PSCmdlet.ShouldProcess($adapter.Name, 'Reset NetAdapterAdvancedProperty')) {
-        Reset-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName '*' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+      foreach ($displayName in $script:UjNicResetDisplayNames) {
+        if ($PSCmdlet.ShouldProcess(("{0}: {1}" -f $adapter.Name, $displayName), 'Reset NetAdapterAdvancedProperty')) {
+          try {
+            Reset-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName $displayName -Confirm:$false -ErrorAction Stop | Out-Null
+          } catch {
+            Write-Verbose -Message ("Reset property '{0}' on {1}: {2}" -f $displayName, $adapter.Name, $_.Exception.Message)
+          }
+        }
       }
       if ($PSCmdlet.ShouldProcess($adapter.Name, 'Enable NetAdapterRsc')) {
         Enable-NetAdapterRsc -Name $adapter.Name -ErrorAction SilentlyContinue | Out-Null
@@ -532,8 +577,12 @@ function Reset-UjBaseline {
   if ($DryRun) {
     Write-UjInformation -Message '[DryRun] Remove QoS_* policies and clear Do not use NLA.'
   } else {
-    Remove-UjManagedQosPolicy
-    Remove-ItemProperty -Path $qosRegKey -Name 'Do not use NLA' -ErrorAction SilentlyContinue
+    if ($PSCmdlet.ShouldProcess('Managed QoS policies', 'Remove QoS_* policies')) {
+      Remove-UjManagedQosPolicy
+    }
+    if ($PSCmdlet.ShouldProcess($qosRegKey, 'Remove Do not use NLA registry value')) {
+      Remove-ItemProperty -Path $qosRegKey -Name 'Do not use NLA' -ErrorAction SilentlyContinue
+    }
   }
 
   foreach ($netshArgs in @(
@@ -559,9 +608,12 @@ function Reset-UjBaseline {
     }
 
     try {
-      & netsh @netshArgs | Out-Null
+      $null = & netsh @netshArgs 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning -Message ("netsh failed (exit {0}): {1}" -f $LASTEXITCODE, ($netshArgs -join ' '))
+      }
     } catch {
-      Write-Verbose -Message ("netsh failed: {0}" -f ($netshArgs -join ' '))
+      Write-Warning -Message ("netsh failed: {0} - {1}" -f ($netshArgs -join ' '), $_.Exception.Message)
     }
   }
 

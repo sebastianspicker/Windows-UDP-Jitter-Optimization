@@ -73,6 +73,9 @@ Import-Module .\WindowsUdpJitterOptimization\WindowsUdpJitterOptimization.psd1 -
 Invoke-UdpJitterOptimization -Action Apply -Preset 1
 ```
 
+## Documentation
+- **Full documentation (English, with architecture and Mermaid diagrams):** [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)
+
 ## Configuration
 Key parameters (see `optimize-udp-jitter.ps1 -?` for full help):
 - `-Action`: `Apply`, `Backup`, `Restore`, or `ResetDefaults`.

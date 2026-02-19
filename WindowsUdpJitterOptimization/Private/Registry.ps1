@@ -1,5 +1,6 @@
 function Export-UjRegistryKey {
   [CmdletBinding()]
+  [OutputType([bool])]
   param(
     [Parameter(Mandatory)]
     [string]$RegistryPath,
@@ -9,7 +10,6 @@ function Export-UjRegistryKey {
   )
 
   try {
-    # Ensure output directory exists
     $outDir = Split-Path -Path $OutFile -Parent
     if ($outDir -and -not (Test-Path -Path $outDir)) {
       New-Item -ItemType Directory -Path $outDir -Force | Out-Null
@@ -17,31 +17,39 @@ function Export-UjRegistryKey {
 
     $result = & reg.exe export $RegistryPath $OutFile /y 2>&1
     if ($LASTEXITCODE -ne 0) {
-      Write-Verbose -Message ("Registry export failed for {0}: {1}" -f $RegistryPath, ($result -join ' '))
+      Write-Warning -Message ("Registry export failed for {0} (exit code {1}): {2}" -f $RegistryPath, $LASTEXITCODE, ($result -join ' '))
+      return $false
     }
+    return $true
   } catch {
-    Write-Verbose -Message ("Registry export failed: {0} - {1}" -f $RegistryPath, $_.Exception.Message)
+    Write-Warning -Message ("Registry export failed: {0} - {1}" -f $RegistryPath, $_.Exception.Message)
+    return $false
   }
 }
 
 function Import-UjRegistryFile {
   [CmdletBinding()]
+  [OutputType([bool])]
   param(
     [Parameter(Mandatory)]
     [string]$InFile
   )
 
   if (-not (Test-Path -Path $InFile)) {
-    return
+    Write-Warning -Message ("Registry import skipped: file not found '{0}'." -f $InFile)
+    return $false
   }
 
   try {
     $null = & reg.exe import $InFile 2>&1
     if ($LASTEXITCODE -ne 0) {
       Write-Warning -Message ("Registry import failed for {0} (reg.exe exited with {1})." -f $InFile, $LASTEXITCODE)
+      return $false
     }
+    return $true
   } catch {
     Write-Warning -Message ("Registry import failed: {0} - {1}" -f $InFile, $_.Exception.Message)
+    return $false
   }
 }
 
