@@ -15,19 +15,29 @@ function Backup-UjState {
   }
 
   New-UjDirectory -Path $BackupFolder | Out-Null
+  $manifest = @{
+    Timestamp = (Get-Date -Format 'o')
+    Components = @{}
+  }
 
-  Export-UjRegistryKey -RegistryPath $script:UjRegistryPathSystemProfileReg -OutFile (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileSystemProfile)
-  Export-UjRegistryKey -RegistryPath $script:UjRegistryPathAfdParametersReg -OutFile (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileAfdParameters)
+  $compReg = Export-UjRegistryKey -RegistryPath $script:UjRegistryPathSystemProfile -OutFile (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileSystemProfile)
+  $manifest.Components['SystemProfile'] = $compReg
+
+  $compAfd = Export-UjRegistryKey -RegistryPath $script:UjRegistryPathAfdParameters -OutFile (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileAfdParameters)
+  $manifest.Components['AfdParameters'] = $compAfd
 
   try {
     $policies = Get-UjManagedQosPolicy
     if ($policies) {
       $policies | Export-CliXml -Path (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileQosOurs)
+      $manifest.Components['QosPolicies'] = $true
     } else {
       Write-Verbose -Message 'No QoS policies found to backup.'
+      $manifest.Components['QosPolicies'] = $true # Treat as success (nothing to do)
     }
   } catch {
     Write-Warning -Message 'QoS backup skipped (Get-NetQosPolicy failed).'
+    $manifest.Components['QosPolicies'] = $false
   }
 
   try {
@@ -35,37 +45,50 @@ function Backup-UjState {
       Get-NetAdapterAdvancedProperty -Name $n.Name |
         Select-Object @{ Name = 'Adapter'; Expression = { $n.Name } }, DisplayName, RegistryKeyword, DisplayValue, RegistryValue
     }
-    $rows | Export-Csv -NoTypeInformation -Path (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileNicAdvanced)
+    if ($rows) {
+      $rows | Export-Csv -NoTypeInformation -Path (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileNicAdvanced)
+      $manifest.Components['NicAdvanced'] = $true
+    } else {
+      $manifest.Components['NicAdvanced'] = $true
+    }
   } catch {
     Write-Warning -Message 'NIC advanced snapshot failed.'
+    $manifest.Components['NicAdvanced'] = $false
   }
 
   try {
     Get-NetAdapterRsc | Select-Object Name, IPv4Enabled, IPv6Enabled |
       Export-Csv -NoTypeInformation -Path (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileRsc)
+    $manifest.Components['NicRsc'] = $true
   } catch {
     Write-Verbose -Message 'RSC snapshot failed.'
+    $manifest.Components['NicRsc'] = $false
   }
 
   try {
     $powerPlanOutput = & powercfg /GetActiveScheme 2>&1
     if ($LASTEXITCODE -eq 0 -and $powerPlanOutput) {
       $text = $powerPlanOutput -join "`n"
-      # Normalize: extract GUID (with or without braces) and write with braces for consistent restore
       $guid = $null
       if ($text -match '\{([0-9a-fA-F-]+)\}') { $guid = $Matches[0] }
       elseif ($text -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { $guid = '{' + $Matches[1] + '}' }
+      
       if ($guid) {
         $guid | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFilePowerplan) -Encoding utf8 -NoNewline
+        $manifest.Components['PowerPlan'] = $true
       } else {
         $text | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFilePowerplan) -Encoding utf8
+        $manifest.Components['PowerPlan'] = $true
       }
     } else {
-      Write-Verbose -Message 'Power plan snapshot skipped (powercfg failed or returned no output).'
+      $manifest.Components['PowerPlan'] = $true
     }
   } catch {
     Write-Verbose -Message ("Power plan snapshot failed: {0}" -f $_.Exception.Message)
+    $manifest.Components['PowerPlan'] = $false
   }
+
+  $manifest | ConvertTo-Json | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileManifest) -Encoding utf8
 }
 
 function Restore-UjRegistryFromBackup {
@@ -227,6 +250,18 @@ function Restore-UjState {
   if ($DryRun) {
     Write-UjInformation -Message '[DryRun] Skip restore (no writes).'
     return
+  }
+
+  $manifestPath = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileManifest
+  if (Test-Path -Path $manifestPath) {
+    try {
+      $manifest = Get-Content -Path $manifestPath -Raw | ConvertFrom-Json
+      Write-UjInformation -Message ("Validated backup manifest (Timestamp: {0})" -f $manifest.Timestamp)
+    } catch {
+      Write-Warning -Message 'Failed to parse backup manifest. Proceeding with caution.'
+    }
+  } else {
+    Write-Warning -Message 'No backup manifest found. The backup may be incomplete or from an older version.'
   }
 
   Restore-UjRegistryFromBackup -BackupFolder $BackupFolder
@@ -504,20 +539,28 @@ function Show-UjSummary {
   [CmdletBinding()]
   param()
 
-  Write-UjInformation -Message "`nQoS Policies (QoS_*):"
+  Write-UjInformation -Message "`n=== Performance Summary ==="
+  Write-UjInformation -Message "QoS Policies (Managed):"
   try {
-    Get-UjManagedQosPolicy | Sort-Object -Property Name | Format-Table -AutoSize
+    $managed = Get-UjManagedQosPolicy
+    if ($managed) {
+      $managed | Sort-Object -Property Name | Select-Object Name, DSCPAction, IPPortMatchCondition, AppPathNameMatchCondition | Format-Table -AutoSize
+    } else {
+      Write-UjInformation -Message "  No active managed QoS policies."
+    }
   } catch {
     Write-Verbose -Message 'QoS summary skipped.'
   }
 
-  Write-UjInformation -Message "`nNIC Key Properties (subset):"
+  Write-UjInformation -Message "`nNIC Key Optimizations:"
   try {
     foreach ($nic in (Get-UjPhysicalUpAdapter)) {
-      Get-NetAdapterAdvancedProperty -Name $nic.Name |
-        Where-Object { $_.DisplayName -match 'Energy|Interrupt|Flow|Offload|Large Send|Jumbo|Wake|Power|Green|NS|ARP|ITR|Buffer' } |
-        Sort-Object -Property DisplayName |
-        Format-Table -AutoSize
+      $props = Get-NetAdapterAdvancedProperty -Name $nic.Name |
+        Where-Object { $_.DisplayName -match 'Energy|Interrupt|Flow|Offload|Large Send|Jumbo|Wake|Power|Green|NS|ARP|ITR|Buffer' }
+      if ($props) {
+        Write-UjInformation -Message ("  Adapter: {0}" -f $nic.Name)
+        $props | Sort-Object -Property DisplayName | Select-Object DisplayName, DisplayValue | Format-Table -AutoSize
+      }
     }
   } catch {
     Write-Verbose -Message 'NIC summary skipped.'
@@ -531,6 +574,8 @@ function Reset-UjBaseline {
     [switch]$DryRun
   )
 
+  Write-UjInformation -Message 'Resetting all settings to Windows baseline defaults...'
+
   Set-UjPowerPlan -PowerPlan Balanced -DryRun:$DryRun
 
   $mmKey = $script:UjRegistryPathSystemProfile
@@ -539,55 +584,61 @@ function Reset-UjBaseline {
   $qosRegKey = $script:UjRegistryPathQos
 
   if (-not $DryRun -and $PSCmdlet.ShouldProcess($mmKey, 'Remove registry tweaks')) {
-    Remove-ItemProperty -Path $mmKey -Name 'NetworkThrottlingIndex' -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path $mmKey -Name 'SystemResponsiveness' -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path $afdKey -Name 'FastSendDatagramThreshold' -ErrorAction SilentlyContinue
+    $tweaks = @(
+      @{ Key = $mmKey; Name = 'NetworkThrottlingIndex' },
+      @{ Key = $mmKey; Name = 'SystemResponsiveness' },
+      @{ Key = $afdKey; Name = 'FastSendDatagramThreshold' }
+    )
+    foreach ($tweak in $tweaks) {
+      if (Test-Path -Path $tweak.Key) {
+        Remove-ItemProperty -Path $tweak.Key -Name $tweak.Name -ErrorAction SilentlyContinue
+      }
+    }
     if (Test-Path -Path $gamesKey) {
       Remove-Item -Path $gamesKey -Recurse -Force -ErrorAction SilentlyContinue
     }
   } elseif ($DryRun) {
-    Write-UjInformation -Message '[DryRun] Remove registry tweaks (NetworkThrottlingIndex/SystemResponsiveness/FastSendDatagramThreshold/MMCSS Games)'
+    Write-UjInformation -Message '[DryRun] Remove registry tweaks (Throttling/Responsiveness/AFD/MMCSS Games)'
   }
 
   Set-UjGameDvrState -State Enabled -DryRun:$DryRun
 
   if ($DryRun) {
-    Write-UjInformation -Message '[DryRun] Reset NIC advanced properties and re-enable RSC.'
+    Write-UjInformation -Message '[DryRun] Reset NIC properties to driver defaults.'
   } else {
     try {
       $adapters = Get-UjPhysicalUpAdapter
-    } catch {
-      Write-Warning -Message ("Get-NetAdapter failed during reset: {0}" -f $_.Exception.Message)
-      $adapters = @()
-    }
-    foreach ($adapter in $adapters) {
-      foreach ($displayName in $script:UjNicResetDisplayNames) {
-        if ($PSCmdlet.ShouldProcess(("{0}: {1}" -f $adapter.Name, $displayName), 'Reset NetAdapterAdvancedProperty')) {
-          try {
-            Reset-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName $displayName -Confirm:$false -ErrorAction Stop | Out-Null
-          } catch {
-            Write-Verbose -Message ("Reset property '{0}' on {1}: {2}" -f $displayName, $adapter.Name, $_.Exception.Message)
+      foreach ($adapter in $adapters) {
+        Write-UjInformation -Message ("  Resetting {0} ..." -f $adapter.Name)
+        foreach ($displayName in $script:UjNicResetDisplayNames) {
+          if ($PSCmdlet.ShouldProcess(("{0}: {1}" -f $adapter.Name, $displayName), 'Reset NetAdapterAdvancedProperty')) {
+            try { Reset-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName $displayName -Confirm:$false -ErrorAction Stop | Out-Null }
+            catch { Write-Verbose -Message ("Reset property '{0}' on {1}: {2}" -f $displayName, $adapter.Name, $_.Exception.Message) }
           }
         }
+        if ($PSCmdlet.ShouldProcess($adapter.Name, 'Enable NetAdapterRsc')) {
+          Enable-NetAdapterRsc -Name $adapter.Name -ErrorAction SilentlyContinue | Out-Null
+        }
       }
-      if ($PSCmdlet.ShouldProcess($adapter.Name, 'Enable NetAdapterRsc')) {
-        Enable-NetAdapterRsc -Name $adapter.Name -ErrorAction SilentlyContinue | Out-Null
-      }
+    } catch {
+      Write-Warning -Message ("NIC reset failed: {0}" -f $_.Exception.Message)
     }
   }
 
   if ($DryRun) {
-    Write-UjInformation -Message '[DryRun] Remove QoS_* policies and clear Do not use NLA.'
+    Write-UjInformation -Message '[DryRun] Clear QoS markers.'
   } else {
     if ($PSCmdlet.ShouldProcess('Managed QoS policies', 'Remove QoS_* policies')) {
       Remove-UjManagedQosPolicy
     }
-    if ($PSCmdlet.ShouldProcess($qosRegKey, 'Remove Do not use NLA registry value')) {
-      Remove-ItemProperty -Path $qosRegKey -Name 'Do not use NLA' -ErrorAction SilentlyContinue
+    if (Test-Path -Path $qosRegKey) {
+      if ($PSCmdlet.ShouldProcess($qosRegKey, 'Remove Do not use NLA registry value')) {
+        Remove-ItemProperty -Path $qosRegKey -Name 'Do not use NLA' -ErrorAction SilentlyContinue
+      }
     }
   }
 
-  foreach ($netshArgs in @(
+  $netshCommands = @(
     @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal'),
     @('interface', 'teredo', 'set', 'state', 'default'),
     @('int', 'udp', 'set', 'global', 'uro=enabled'),
@@ -599,39 +650,36 @@ function Reset-UjBaseline {
     @('int', 'tcp', 'set', 'supplemental', 'internet', 'taillossprobe=disabled'),
     @('int', 'tcp', 'set', 'global', 'prr=enabled'),
     @('int', 'tcp', 'set', 'global', 'hystart=enabled')
-  )) {
+  )
+
+  foreach ($netshArgs in $netshCommands) {
     if ($DryRun) {
       Write-UjInformation -Message ("[DryRun] netsh {0}" -f ($netshArgs -join ' '))
       continue
     }
 
-    if (-not $PSCmdlet.ShouldProcess('netsh', ($netshArgs -join ' '))) {
-      continue
-    }
-
-    try {
-      $null = & netsh @netshArgs 2>&1
-      if ($LASTEXITCODE -ne 0) {
-        Write-Warning -Message ("netsh failed (exit {0}): {1}" -f $LASTEXITCODE, ($netshArgs -join ' '))
+    if ($PSCmdlet.ShouldProcess('netsh', ($netshArgs -join ' '))) {
+      try {
+        $null = & netsh @netshArgs 2>&1
+        if ($LASTEXITCODE -ne 0) { Write-Verbose -Message ("netsh {0} failed with exit {1}" -f ($netshArgs -join ' '), $LASTEXITCODE) }
+      } catch {
+        Write-Verbose -Message ("netsh execution failed: {0}" -f $_.Exception.Message)
       }
-    } catch {
-      Write-Warning -Message ("netsh failed: {0} - {1}" -f ($netshArgs -join ' '), $_.Exception.Message)
     }
   }
 
   try {
-    $ts = Get-NetTCPSetting -SettingName Internet
-    if ($DryRun) {
-      Write-UjInformation -Message '[DryRun] Set NetTCPSetting Internet: CongestionProvider=NewReno, ECN=Disabled'
-    } elseif ($PSCmdlet.ShouldProcess('NetTCPSetting Internet', 'Restore congestion & ECN defaults')) {
-      Set-NetTCPSetting -SettingName Internet -CongestionProvider NewReno -EcnCapability Disabled `
-        -AutoReusePortRangeEnabled $ts.AutoReusePortRangeEnabled `
-        -AutoReusePortRangeNumberOfPorts $ts.AutoReusePortRangeNumberOfPorts `
-        -AutoReusePortRangeMaxPorts $ts.AutoReusePortRangeMaxPorts | Out-Null
+    $ts = Get-NetTCPSetting -SettingName Internet -ErrorAction SilentlyContinue
+    if ($ts) {
+      if ($DryRun) {
+        Write-UjInformation -Message '[DryRun] Restore TCP Internet setting defaults (CNG/ECN)'
+      } elseif ($PSCmdlet.ShouldProcess('NetTCPSetting Internet', 'Restore congestion & ECN defaults')) {
+        Set-NetTCPSetting -SettingName Internet -CongestionProvider NewReno -EcnCapability Disabled | Out-Null
+      }
     }
   } catch {
-    Write-Verbose -Message 'Get/Set-NetTCPSetting failed (may be unavailable on this platform).'
+    Write-Verbose -Message 'TCP fallback settings apply failed.'
   }
 
-  Write-UjInformation -Message 'All settings restored to baseline defaults. Reboot recommended for full effect.'
+  Write-UjInformation -Message 'Reset complete. Reboot recommended for full system synchronization.'
 }

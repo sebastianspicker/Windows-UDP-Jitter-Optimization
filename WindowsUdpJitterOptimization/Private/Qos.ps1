@@ -35,11 +35,9 @@ function New-UjDscpPolicyByPort {
     [string]$Name,
 
     [Parameter(Mandatory)]
-    [ValidateRange(1, 65535)]
     [uint16]$PortStart,
 
     [Parameter(Mandatory)]
-    [ValidateRange(1, 65535)]
     [uint16]$PortEnd,
 
     [Parameter()]
@@ -54,38 +52,43 @@ function New-UjDscpPolicyByPort {
     throw 'PortEnd must be >= PortStart.'
   }
 
-  $portRange = [int]$PortEnd - [int]$PortStart + 1
-  if ($portRange -gt 100) {
-    Write-Warning -Message ("Large port range detected ({0} ports). This may create many QoS policies and take significant time. Consider using smaller ranges." -f $portRange)
+  $portCount = [int]$PortEnd - [int]$PortStart + 1
+  $maxIndividualPolicies = 100
+
+  if ($portCount -gt $maxIndividualPolicies) {
+    Write-Warning -Message ("Port range too large ({0} ports). Windows QoS PolicyAgent may experience performance issues with many individual policies." -f $portCount)
+    Write-Warning -Message ("Capping policies to the first {0} ports of the range. Consider using -IncludeAppPolicies instead for broader matches." -f $maxIndividualPolicies)
+    $effectivePortEnd = [int]$PortStart + $maxIndividualPolicies - 1
+  } else {
+    $effectivePortEnd = [int]$PortEnd
   }
 
   if ($DryRun) {
-    Write-UjInformation -Message ("[DryRun] QoS {0} UDP {1}-{2} DSCP={3} (local store, {4} policies)" -f $Name, $PortStart, $PortEnd, $Dscp, $portRange)
+    $actualCount = $effectivePortEnd - [int]$PortStart + 1
+    Write-UjInformation -Message ("[DryRun] QoS {0} UDP {1}-{2} DSCP={3} ({4} individual policies)" -f $Name, $PortStart, $effectivePortEnd, $Dscp, $actualCount)
     return
   }
 
-  foreach ($existing in (Get-UjManagedQosPolicy | Where-Object { $_.Name -like ($Name + '*') })) {
-    if (-not $PSCmdlet.ShouldProcess($existing.Name, 'Remove NetQosPolicy')) {
-      continue
-    }
-
-    try {
-      Remove-NetQosPolicy -Name $existing.Name -Confirm:$false | Out-Null
-    } catch {
-      Write-Verbose -Message ("Failed to remove existing QoS policy: {0}" -f $existing.Name)
+  # Clean up existing policies that match the prefix
+  $existingPolicies = Get-UjManagedQosPolicy | Where-Object { $_.Name -match ("^" + [regex]::Escape($Name)) }
+  foreach ($existing in $existingPolicies) {
+    if ($PSCmdlet.ShouldProcess($existing.Name, 'Remove existing NetQosPolicy')) {
+      try { Remove-NetQosPolicy -Name $existing.Name -Confirm:$false -ErrorAction Stop | Out-Null }
+      catch { Write-Verbose -Message ("Failed to remove policy {0}: {1}" -f $existing.Name, $_.Exception.Message) }
     }
   }
 
-  for ($port = [int]$PortStart; $port -le [int]$PortEnd; $port++) {
-    $policyName = if ($PortStart -eq $PortEnd) { $Name } else { "{0}_{1}" -f $Name, $port }
+  for ($port = [int]$PortStart; $port -le $effectivePortEnd; $port++) {
+    $policyName = if ($PortStart -eq $effectivePortEnd) { $Name } else { "{0}_{1}" -f $Name, $port }
     if (-not $PSCmdlet.ShouldProcess($policyName, 'Create NetQosPolicy (DSCP by UDP port)')) {
       continue
     }
 
     try {
-      New-NetQosPolicy -Name $policyName -IPPortMatchCondition ([uint16]$port) -IPProtocolMatchCondition UDP -DSCPAction $Dscp -NetworkProfile All | Out-Null
+      New-NetQosPolicy -Name $policyName -IPPortMatchCondition ([uint16]$port) -IPProtocolMatchCondition UDP -DSCPAction $Dscp -NetworkProfile All -ErrorAction Stop | Out-Null
     } catch {
       Write-Warning -Message ("Failed to create QoS policy for port {0}: {1}" -f $port, $_.Exception.Message)
+      break # Stop if we hit a system limit
     }
   }
 }

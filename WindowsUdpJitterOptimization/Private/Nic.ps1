@@ -22,24 +22,39 @@ function Set-UjNicAdvancedPropertyIfSupported {
     [switch]$DryRun
   )
 
-  $property = Get-NetAdapterAdvancedProperty -Name $Name -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $DisplayName }
+  # P0 Fix: Prefer standardized RegistryKeywords over localized DisplayNames
+  $keyword = if ($script:UjNicKeywordMap.ContainsKey($DisplayName)) { $script:UjNicKeywordMap[$DisplayName] } else { $null }
+
+  $property = if ($keyword) {
+    Get-NetAdapterAdvancedProperty -Name $Name -RegistryKeyword $keyword -ErrorAction SilentlyContinue
+  } else {
+    Get-NetAdapterAdvancedProperty -Name $Name -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $DisplayName }
+  }
+
   if (-not $property) {
+    Write-Verbose -Message ("{0}: property '{1}' (keyword={2}) not found or not supported." -f $Name, $DisplayName, $keyword)
     return
   }
 
   if ($DryRun) {
-    Write-UjInformation -Message ("[DryRun] {0}: {1} => {2}" -f $Name, $DisplayName, $Value)
+    $keywordLabel = if ($keyword) { $keyword } else { 'no-keyword' }
+    Write-UjInformation -Message ("[DryRun] {0}: {1} ({2}) => {3}" -f $Name, $DisplayName, $keywordLabel, $Value)
     return
   }
 
-  if (-not $PSCmdlet.ShouldProcess(("{0}: {1}" -f $Name, $DisplayName), ("Set to '{0}'" -f $Value))) {
+  $targetHint = if ($keyword) { "Keyword: $keyword" } else { "DisplayName: $DisplayName" }
+  if (-not $PSCmdlet.ShouldProcess(("{0}: {1}" -f $Name, $DisplayName), ("Set to '{0}' via {1}" -f $Value, $targetHint))) {
     return
   }
 
   try {
-    Set-NetAdapterAdvancedProperty -Name $Name -DisplayName $DisplayName -DisplayValue $Value -NoRestart -ErrorAction Stop | Out-Null
+    if ($keyword) {
+      Set-NetAdapterAdvancedProperty -Name $Name -RegistryKeyword $keyword -RegistryValue $Value -NoRestart -ErrorAction Stop | Out-Null
+    } else {
+      Set-NetAdapterAdvancedProperty -Name $Name -DisplayName $DisplayName -DisplayValue $Value -NoRestart -ErrorAction Stop | Out-Null
+    }
   } catch {
-    Write-Warning -Message ("{0}: failed to set {1}" -f $Name, $DisplayName)
+    Write-Warning -Message ("{0}: failed to set {1} ({2})" -f $Name, $DisplayName, $_.Exception.Message)
   }
 }
 

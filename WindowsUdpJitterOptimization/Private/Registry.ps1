@@ -1,3 +1,10 @@
+function Get-UjRegistryPathForRegExe {
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Path)
+  # Converts 'HKLM:\...' to 'HKLM\...' for reg.exe compatibility
+  return $Path -replace '^HKLM:', 'HKLM' -replace '^HKCU:', 'HKCU' -replace '^HKCR:', 'HKCR' -replace '^HKU:', 'HKU'
+}
+
 function Export-UjRegistryKey {
   [CmdletBinding()]
   [OutputType([bool])]
@@ -15,9 +22,10 @@ function Export-UjRegistryKey {
       New-Item -ItemType Directory -Path $outDir -Force | Out-Null
     }
 
-    $result = & reg.exe export $RegistryPath $OutFile /y 2>&1
+    $normalizedPath = Get-UjRegistryPathForRegExe -Path $RegistryPath
+    $result = & reg.exe export $normalizedPath $OutFile /y 2>&1
     if ($LASTEXITCODE -ne 0) {
-      Write-Warning -Message ("Registry export failed for {0} (exit code {1}): {2}" -f $RegistryPath, $LASTEXITCODE, ($result -join ' '))
+      Write-Warning -Message ("Registry export failed for {0} (exit code {1}): {2}" -f $normalizedPath, $LASTEXITCODE, ($result -join ' '))
       return $false
     }
     return $true
