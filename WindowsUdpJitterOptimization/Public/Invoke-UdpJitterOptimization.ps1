@@ -126,7 +126,7 @@ function Invoke-UdpJitterOptimization {
 
   Write-UjInformation -Message ("UDP Jitter Optimization - Preset {0} (Action={1})" -f $Preset, $Action)
 
-  Backup-UjState -BackupFolder $BackupFolder
+  Backup-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
 
   Set-UjMmcssAudioSafety -DryRun:$DryRun
   Start-UjAudioService -DryRun:$DryRun

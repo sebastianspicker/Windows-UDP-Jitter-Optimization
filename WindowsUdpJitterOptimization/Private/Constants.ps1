@@ -62,4 +62,17 @@ $script:UjNicKeywordMap = @{
   'ITR'                            = '*InterruptModerationRate'
   'Receive Buffers'                = '*ReceiveBuffers'
   'Transmit Buffers'               = '*TransmitBuffers'
+  # P2-2 Fix: Add missing keywords for Green Ethernet, Power Saving Mode, WOL & Shutdown Link Speed
+  'Green Ethernet'                 = '*GreenEthernet'
+  'Power Saving Mode'              = '*PowerSavingMode'
+  'WOL & Shutdown Link Speed'      = '*WakeOnLink'
 }
+
+# P2-3 Fix: Keywords for reset operations (locale-independent)
+$script:UjNicResetKeywords = @(
+  '*EEE', '*InterruptModeration', '*FlowControl', '*GreenEthernet', '*PowerSavingMode',
+  '*JumboPacket', '*LsoV2IPv4', '*LsoV2IPv6', '*UDPChecksumOffloadIPv4', '*UDPChecksumOffloadIPv6',
+  '*TCPChecksumOffloadIPv4', '*TCPChecksumOffloadIPv6', '*ARPOffload', '*NSOffload',
+  '*WakeOnMagicPacket', '*WakeOnPattern', '*WakeOnLink', '*InterruptModerationRate',
+  '*ReceiveBuffers', '*TransmitBuffers'
+)

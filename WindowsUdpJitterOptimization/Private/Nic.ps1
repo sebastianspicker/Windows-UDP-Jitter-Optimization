@@ -115,7 +115,8 @@ function Set-UjNicConfiguration {
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Wake on pattern match' -Value 'Disabled' -DryRun:$DryRun
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'WOL & Shutdown Link Speed' -Value 'Disabled' -DryRun:$DryRun
 
-      $itr = Get-NetAdapterAdvancedProperty -Name $nic.Name -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'ITR' }
+      # P1-4 Fix: Use RegistryKeyword for ITR lookup (locale-independent)
+      $itr = Get-NetAdapterAdvancedProperty -Name $nic.Name -RegistryKeyword '*InterruptModerationRate' -ErrorAction SilentlyContinue
       if ($itr) {
         Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'ITR' -Value '0' -DryRun:$DryRun
       }

@@ -204,11 +204,19 @@ function Restore-UjRscFromBackup {
     foreach ($row in (Import-Csv -Path $rscFile)) {
       $ipv4Enabled = [string]$row.IPv4Enabled -ieq 'True'
       $ipv6Enabled = [string]$row.IPv6Enabled -ieq 'True'
-      $enable = $ipv4Enabled -or $ipv6Enabled
-      if ($enable) {
-        if ($PSCmdlet.ShouldProcess($row.Name, 'Enable NetAdapterRsc')) { Enable-NetAdapterRsc -Name $row.Name -ErrorAction SilentlyContinue | Out-Null }
-      } else {
-        if ($PSCmdlet.ShouldProcess($row.Name, 'Disable NetAdapterRsc')) { Disable-NetAdapterRsc -Name $row.Name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }
+      
+      # P1-3 Fix: Preserve mixed IPv4/IPv6 state using protocol-specific enable/disable
+      if ($PSCmdlet.ShouldProcess($row.Name, 'Restore NetAdapterRsc IPv4/IPv6 state')) {
+        if ($ipv4Enabled) {
+          Enable-NetAdapterRsc -Name $row.Name -IPv4 -ErrorAction SilentlyContinue | Out-Null
+        } else {
+          Disable-NetAdapterRsc -Name $row.Name -IPv4 -ErrorAction SilentlyContinue | Out-Null
+        }
+        if ($ipv6Enabled) {
+          Enable-NetAdapterRsc -Name $row.Name -IPv6 -ErrorAction SilentlyContinue | Out-Null
+        } else {
+          Disable-NetAdapterRsc -Name $row.Name -IPv6 -ErrorAction SilentlyContinue | Out-Null
+        }
       }
     }
   } catch { Write-Verbose -Message 'RSC restore failed.' }
@@ -297,14 +305,11 @@ function Set-UjMmcssAudioSafety {
     New-Item -Path $audio -Force | Out-Null
   }
 
+  # P2-1 Fix: Use correct registry value names (non-spaced versions per Windows documentation)
   Set-UjRegistryValue -Key $mm -Name 'SystemResponsiveness' -Type DWord -Value 20
   Set-UjRegistryValue -Key $audio -Name 'Priority' -Type DWord -Value 6
-  Set-UjRegistryValue -Key $audio -Name 'Background Only' -Type DWord -Value 0
-  Set-UjRegistryValue -Key $audio -Name 'Clock Rate' -Type DWord -Value 10000
-  Set-UjRegistryValue -Key $audio -Name 'Scheduling Category' -Type String -Value 'High'
-  Set-UjRegistryValue -Key $audio -Name 'SFIO Priority' -Type String -Value 'High'
-
   Set-UjRegistryValue -Key $audio -Name 'BackgroundOnly' -Type DWord -Value 0
+  Set-UjRegistryValue -Key $audio -Name 'Clock Rate' -Type DWord -Value 10000
   Set-UjRegistryValue -Key $audio -Name 'SchedulingCategory' -Type String -Value 'High'
   Set-UjRegistryValue -Key $audio -Name 'SFIOPriority' -Type String -Value 'High'
 }
@@ -531,8 +536,9 @@ function Set-UjGameDvrState {
     return
   }
 
-  Set-ItemProperty -Path $dvr -Name 'AppCaptureEnabled' -PropertyType DWord -Value $value -Force
-  Set-ItemProperty -Path $dvr -Name 'HistoricalCaptureEnabled' -PropertyType DWord -Value $value -Force
+  # Use New-ItemProperty with -Force to create or update the property
+  New-ItemProperty -Path $dvr -Name 'AppCaptureEnabled' -PropertyType DWord -Value $value -Force | Out-Null
+  New-ItemProperty -Path $dvr -Name 'HistoricalCaptureEnabled' -PropertyType DWord -Value $value -Force | Out-Null
 }
 
 function Show-UjSummary {
@@ -610,10 +616,11 @@ function Reset-UjBaseline {
       $adapters = Get-UjPhysicalUpAdapter
       foreach ($adapter in $adapters) {
         Write-UjInformation -Message ("  Resetting {0} ..." -f $adapter.Name)
-        foreach ($displayName in $script:UjNicResetDisplayNames) {
-          if ($PSCmdlet.ShouldProcess(("{0}: {1}" -f $adapter.Name, $displayName), 'Reset NetAdapterAdvancedProperty')) {
-            try { Reset-NetAdapterAdvancedProperty -Name $adapter.Name -DisplayName $displayName -Confirm:$false -ErrorAction Stop | Out-Null }
-            catch { Write-Verbose -Message ("Reset property '{0}' on {1}: {2}" -f $displayName, $adapter.Name, $_.Exception.Message) }
+        # P2-3 Fix: Use RegistryKeywords instead of localized DisplayNames for reset
+        foreach ($keyword in $script:UjNicResetKeywords) {
+          if ($PSCmdlet.ShouldProcess(("{0}: {1}" -f $adapter.Name, $keyword), 'Reset NetAdapterAdvancedProperty')) {
+            try { Reset-NetAdapterAdvancedProperty -Name $adapter.Name -RegistryKeyword $keyword -Confirm:$false -ErrorAction Stop | Out-Null }
+            catch { Write-Verbose -Message ("Reset property '{0}' on {1}: {2}" -f $keyword, $adapter.Name, $_.Exception.Message) }
           }
         }
         if ($PSCmdlet.ShouldProcess($adapter.Name, 'Enable NetAdapterRsc')) {

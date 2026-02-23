@@ -7,6 +7,8 @@ function Get-UjManagedQosPolicy {
     Get-NetQosPolicy -ErrorAction Stop | Where-Object { $_.Name -like 'QoS_*' }
   } catch {
     Write-Warning -Message ("Get-NetQosPolicy failed: {0}. Treat as no managed policies." -f $_.Exception.Message)
+    # P3-1 Fix: Add verbose logging for diagnostics
+    Write-Verbose -Message "QoS query failure - backup/restore may be incomplete. Error: $($_.Exception.Message)"
     return
   }
 }
