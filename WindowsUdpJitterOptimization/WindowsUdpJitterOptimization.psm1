@@ -1,17 +1,43 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$publicFiles = Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath 'Public') -Filter '*.ps1' -File -ErrorAction SilentlyContinue
-foreach ($file in $publicFiles) {
-  . $file.FullName
-}
-
 $privateDir = Join-Path -Path $PSScriptRoot -ChildPath 'Private'
-. (Join-Path -Path $privateDir -ChildPath 'Constants.ps1')
-$privateFiles = Get-ChildItem -Path $privateDir -Filter '*.ps1' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'Constants.ps1' }
-foreach ($file in $privateFiles) {
-  . $file.FullName
+$constantsPath = Join-Path -Path $privateDir -ChildPath 'Constants.ps1'
+if (-not (Test-Path -LiteralPath $constantsPath)) {
+  throw "Required module file missing: $constantsPath"
+}
+. $constantsPath
+
+$privateLoadOrder = @(
+  'Logging.ps1',
+  'Filesystem.ps1',
+  'Registry.ps1',
+  'Platform.ps1',
+  'Qos.ps1',
+  'Nic.ps1',
+  'Actions.BackupRestore.ps1',
+  'Actions.Apply.ps1',
+  'Actions.Reset.ps1'
+)
+foreach ($fileName in $privateLoadOrder) {
+  $filePath = Join-Path -Path $privateDir -ChildPath $fileName
+  if (-not (Test-Path -LiteralPath $filePath)) {
+    throw "Required private module file missing: $filePath"
+  }
+  . $filePath
 }
 
-Export-ModuleMember -Function 'Invoke-UdpJitterOptimization'
+$publicDir = Join-Path -Path $PSScriptRoot -ChildPath 'Public'
+$publicLoadOrder = @(
+  'Get-UjDefaultBackupFolder.ps1',
+  'Invoke-UdpJitterOptimization.ps1'
+)
+foreach ($fileName in $publicLoadOrder) {
+  $filePath = Join-Path -Path $publicDir -ChildPath $fileName
+  if (-not (Test-Path -LiteralPath $filePath)) {
+    throw "Required public module file missing: $filePath"
+  }
+  . $filePath
+}
 
+Export-ModuleMember -Function 'Invoke-UdpJitterOptimization', 'Get-UjDefaultBackupFolder', 'Test-UjIsAdministrator'

@@ -13,6 +13,12 @@
 .PARAMETER Preset
   Risk level 1 (Conservative), 2 (Medium), or 3 (Higher risk). Only used when Action is Apply.
 
+.PARAMETER AllowUnsafeBackupFolder
+  Allows backup/restore/apply paths under sensitive system directories.
+
+.PARAMETER PassThru
+  Returns a structured result object for automation.
+
 .PARAMETER SkipAdminCheck
   Skip the administrator privilege check (e.g. for testing or constrained environments).
 
@@ -57,7 +63,11 @@ param(
 
   [switch]$DisableUro,
 
-  [string]$BackupFolder = (Join-Path -Path $env:ProgramData -ChildPath 'UDPTune'),
+  [string]$BackupFolder,
+
+  [switch]$AllowUnsafeBackupFolder,
+
+  [switch]$PassThru,
 
   [switch]$DryRun,
 
@@ -69,5 +79,9 @@ $ErrorActionPreference = 'Stop'
 
 $manifestPath = Join-Path -Path $PSScriptRoot -ChildPath 'WindowsUdpJitterOptimization/WindowsUdpJitterOptimization.psd1'
 Import-Module -Name $manifestPath -Force
+
+if (-not $PSBoundParameters.ContainsKey('BackupFolder')) {
+  $PSBoundParameters['BackupFolder'] = Get-UjDefaultBackupFolder
+}
 
 Invoke-UdpJitterOptimization @PSBoundParameters

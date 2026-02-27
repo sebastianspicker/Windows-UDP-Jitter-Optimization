@@ -14,7 +14,13 @@ function Invoke-UdpJitterOptimization {
     Risk level 1 (Conservative), 2 (Medium), 3 (Higher risk). Used when Action is Apply.
 
   .PARAMETER BackupFolder
-    Directory for backup/restore files. Default: $env:ProgramData\UDPTune.
+    Directory for backup/restore files. Default: ProgramData\UDPTune.
+
+  .PARAMETER AllowUnsafeBackupFolder
+    Allow backup/restore paths under sensitive system directories.
+
+  .PARAMETER PassThru
+    Return a structured result object containing action metadata and component status.
 
   .PARAMETER DryRun
     Print what would be done without making changes.
@@ -26,7 +32,7 @@ function Invoke-UdpJitterOptimization {
     Invoke-UdpJitterOptimization -Action Apply -Preset 2 -WhatIf
 
   .EXAMPLE
-    Invoke-UdpJitterOptimization -Action Backup -BackupFolder C:\MyBackup
+    Invoke-UdpJitterOptimization -Action Backup -BackupFolder C:\MyBackup -PassThru
   #>
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
   param(
@@ -71,7 +77,13 @@ function Invoke-UdpJitterOptimization {
     [switch]$DisableUro,
 
     [Parameter()]
-    [string]$BackupFolder = (Join-Path -Path $env:ProgramData -ChildPath 'UDPTune'),
+    [string]$BackupFolder = $script:UjDefaultBackupFolder,
+
+    [Parameter()]
+    [switch]$AllowUnsafeBackupFolder,
+
+    [Parameter()]
+    [switch]$PassThru,
 
     [Parameter()]
     [switch]$DryRun,
@@ -103,67 +115,114 @@ function Invoke-UdpJitterOptimization {
     throw 'BackupFolder must not be empty.'
   }
 
+  if ($Action -in @('Backup', 'Restore', 'Apply') -and -not $AllowUnsafeBackupFolder -and (Test-UjUnsafeBackupFolder -Path $BackupFolder)) {
+    throw 'BackupFolder appears unsafe because it points to a sensitive system directory. Use -AllowUnsafeBackupFolder to override intentionally.'
+  }
+
   if (-not $DryRun -and $Action -in @('Backup', 'Restore', 'Apply')) {
     New-UjDirectory -Path $BackupFolder | Out-Null
   }
 
+  $warnings = [System.Collections.Generic.List[string]]::new()
+  $components = [ordered]@{}
+  $success = $true
+
   if ($Action -eq 'Backup') {
     Backup-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
+    $components['Backup'] = if ($DryRun) { 'Skipped' } else { 'OK' }
     Write-UjInformation -Message 'Backup complete.'
-    return
-  }
-
-  if ($Action -eq 'Restore') {
-    Restore-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
-    Write-UjInformation -Message 'Restore complete. A reboot may be required.'
-    return
-  }
-
-  if ($Action -eq 'ResetDefaults') {
-    Reset-UjBaseline -DryRun:$DryRun
-    return
-  }
-
-  Write-UjInformation -Message ("UDP Jitter Optimization - Preset {0} (Action={1})" -f $Preset, $Action)
-
-  Backup-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
-
-  Set-UjMmcssAudioSafety -DryRun:$DryRun
-  Start-UjAudioService -DryRun:$DryRun
-
-  Enable-UjLocalQosMarking -DryRun:$DryRun
-
-  New-UjDscpPolicyByPort -Name ("QoS_UDP_TS_{0}" -f $TeamSpeakPort) -PortStart $TeamSpeakPort -PortEnd $TeamSpeakPort -Dscp $script:UjDefaultDscp -DryRun:$DryRun
-  New-UjDscpPolicyByPort -Name ("QoS_UDP_CS2_{0}_{1}" -f $CS2PortStart, $CS2PortEnd) -PortStart $CS2PortStart -PortEnd $CS2PortEnd -Dscp $script:UjDefaultDscp -DryRun:$DryRun
-
-  if ($IncludeAppPolicies -and $null -ne $AppPaths -and $AppPaths.Count -gt 0) {
-    $i = 0
-    foreach ($path in $AppPaths) {
-      if ([string]::IsNullOrWhiteSpace($path)) {
-        continue
+  } elseif ($Action -eq 'Restore') {
+    $restoreStatus = Restore-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
+    foreach ($name in $restoreStatus.Keys) {
+      $components[$name] = $restoreStatus[$name]
+      if ($restoreStatus[$name] -eq 'Warn') {
+        $success = $false
+        $warnings.Add("Restore component '$name' completed with warning.") | Out-Null
       }
-      $i++
-      New-UjDscpPolicyByApp -Name ('QoS_APP_{0}' -f $i) -ExePath $path -Dscp $script:UjDefaultDscp -DryRun:$DryRun
     }
+    Write-UjInformation -Message 'Restore complete. A reboot may be required.'
+  } elseif ($Action -eq 'ResetDefaults') {
+    Reset-UjBaseline -DryRun:$DryRun
+    $components['Reset'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+  } else {
+    Write-UjInformation -Message ("UDP Jitter Optimization - Preset {0} (Action={1})" -f $Preset, $Action)
+
+    Backup-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
+    $components['Backup'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+
+    Set-UjMmcssAudioSafety -DryRun:$DryRun
+    $components['MmcssAudioSafety'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+
+    Start-UjAudioService -DryRun:$DryRun
+    $components['AudioServices'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+
+    Enable-UjLocalQosMarking -DryRun:$DryRun
+    $components['LocalQos'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+
+    New-UjDscpPolicyByPort -Name ("QoS_UDP_TS_{0}" -f $TeamSpeakPort) -PortStart $TeamSpeakPort -PortEnd $TeamSpeakPort -Dscp $script:UjDefaultDscp -DryRun:$DryRun
+    New-UjDscpPolicyByPort -Name ("QoS_UDP_CS2_{0}_{1}" -f $CS2PortStart, $CS2PortEnd) -PortStart $CS2PortStart -PortEnd $CS2PortEnd -Dscp $script:UjDefaultDscp -DryRun:$DryRun
+    $components['QosPortPolicies'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+
+    if ($IncludeAppPolicies -and $null -ne $AppPaths -and $AppPaths.Count -gt 0) {
+      $i = 0
+      foreach ($path in $AppPaths) {
+        if ([string]::IsNullOrWhiteSpace($path)) {
+          continue
+        }
+        $i++
+        New-UjDscpPolicyByApp -Name ('QoS_APP_{0}' -f $i) -ExePath $path -Dscp $script:UjDefaultDscp -DryRun:$DryRun
+      }
+      $components['QosAppPolicies'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+    } else {
+      $components['QosAppPolicies'] = 'Skipped'
+    }
+
+    Set-UjNicConfiguration -Preset $Preset -DryRun:$DryRun
+    $components['Nic'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+
+    Set-UjAfdFastSendDatagramThreshold -Preset $Preset -AfdThreshold $AfdThreshold -DryRun:$DryRun
+    $components['Afd'] = if ($Preset -lt 2) { 'Skipped' } elseif ($DryRun) { 'Skipped' } else { 'OK' }
+
+    Set-UjUndocumentedNetworkMmcssTuning -Preset $Preset -DryRun:$DryRun
+    $components['MmcssNetworkTuning'] = if ($Preset -lt 3) { 'Skipped' } elseif ($DryRun) { 'Skipped' } else { 'OK' }
+
+    if ($DisableUro -or $Preset -ge 3) {
+      Set-UjUroState -State Disabled -DryRun:$DryRun
+      $components['Uro'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+    } else {
+      $components['Uro'] = 'Skipped'
+    }
+
+    if ($PowerPlan -ne 'None') {
+      Set-UjPowerPlan -PowerPlan $PowerPlan -DryRun:$DryRun
+      $components['PowerPlan'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+    } else {
+      $components['PowerPlan'] = 'Skipped'
+    }
+
+    if ($DisableGameDvr) {
+      Set-UjGameDvrState -State Disabled -DryRun:$DryRun
+      $components['GameDvr'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+    } else {
+      $components['GameDvr'] = 'Skipped'
+    }
+
+    Show-UjSummary
+    Write-UjInformation -Message 'Note: Reboot recommended for AFD/MMCSS registry changes to fully apply.'
   }
 
-  Set-UjNicConfiguration -Preset $Preset -DryRun:$DryRun
-  Set-UjAfdFastSendDatagramThreshold -Preset $Preset -AfdThreshold $AfdThreshold -DryRun:$DryRun
-  Set-UjUndocumentedNetworkMmcssTuning -Preset $Preset -DryRun:$DryRun
-
-  if ($DisableUro -or $Preset -ge 3) {
-    Set-UjUroState -State Disabled -DryRun:$DryRun
+  if (-not $PassThru) {
+    return
   }
 
-  if ($PowerPlan -ne 'None') {
-    Set-UjPowerPlan -PowerPlan $PowerPlan -DryRun:$DryRun
+  return [pscustomobject]@{
+    Action       = $Action
+    Preset       = if ($Action -eq 'Apply') { $Preset } else { $null }
+    DryRun       = [bool]$DryRun
+    Success      = [bool]$success
+    BackupFolder = if ($Action -in @('Backup', 'Restore', 'Apply')) { $BackupFolder } else { $null }
+    Timestamp    = (Get-Date)
+    Components   = $components
+    Warnings     = @($warnings)
   }
-
-  if ($DisableGameDvr) {
-    Set-UjGameDvrState -State Disabled -DryRun:$DryRun
-  }
-
-  Show-UjSummary
-  Write-UjInformation -Message ''
-  Write-UjInformation -Message 'Note: Reboot recommended for AFD/MMCSS registry changes to fully apply.'
 }

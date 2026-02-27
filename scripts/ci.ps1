@@ -87,4 +87,14 @@ if ($scriptAnalyzerResults) {
   throw "PSScriptAnalyzer found $(@($scriptAnalyzerResults).Count) issue(s)."
 }
 
-Invoke-Pester -Path (Join-Path -Path $repoRoot -ChildPath 'tests') -CI
+$pesterResultsDir = Join-Path -Path $repoRoot -ChildPath 'test-results'
+if (-not (Test-Path -LiteralPath $pesterResultsDir)) {
+  New-Item -Path $pesterResultsDir -ItemType Directory -Force | Out-Null
+}
+
+Push-Location -Path $pesterResultsDir
+try {
+  Invoke-Pester -Path (Join-Path -Path $repoRoot -ChildPath 'tests') -CI
+} finally {
+  Pop-Location
+}

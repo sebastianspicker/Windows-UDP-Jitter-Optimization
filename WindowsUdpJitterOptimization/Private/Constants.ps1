@@ -6,6 +6,15 @@ $script:UjRegistryPathSystemProfile = 'HKLM:\SOFTWARE\Microsoft\Windows NT\Curre
 $script:UjRegistryPathAfdParameters = 'HKLM:\SYSTEM\CurrentControlSet\Services\AFD\Parameters'
 $script:UjRegistryPathQos = 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\QoS'
 
+# Default backup folder (single source of truth; CLI/GUI use this or Get-UjDefaultBackupFolder)
+# On non-Windows (e.g. tests on macOS) avoid C: drive so Join-Path does not fail
+$script:UjDefaultBackupFolderBase = if ([string]::IsNullOrWhiteSpace($env:ProgramData)) {
+  if ($env:OS -eq 'Windows_NT') { 'C:\ProgramData' } else { [System.IO.Path]::GetTempPath().TrimEnd([System.IO.Path]::DirectorySeparatorChar) }
+} else {
+  $env:ProgramData
+}
+$script:UjDefaultBackupFolder = Join-Path -Path $script:UjDefaultBackupFolderBase -ChildPath 'UDPTune'
+
 # Backup file names (child names under BackupFolder)
 $script:UjBackupFileManifest = 'backup_manifest.json'
 $script:UjBackupFileSystemProfile = 'SystemProfile.reg'
@@ -18,29 +27,12 @@ $script:UjBackupFilePowerplan = 'powerplan.txt'
 # Default DSCP value for QoS policies (EF / Expedited Forwarding)
 $script:UjDefaultDscp = 46
 
-# NIC advanced property display names that this module may set (used for reset-only-these in ResetDefaults)
-$script:UjNicResetDisplayNames = @(
-  'Energy Efficient Ethernet',
-  'Interrupt Moderation',
-  'Flow Control',
-  'Green Ethernet',
-  'Power Saving Mode',
-  'Jumbo Packet',
-  'Large Send Offload v2 (IPv4)',
-  'Large Send Offload v2 (IPv6)',
-  'UDP Checksum Offload (IPv4)',
-  'UDP Checksum Offload (IPv6)',
-  'TCP Checksum Offload (IPv4)',
-  'TCP Checksum Offload (IPv6)',
-  'ARP Offload',
-  'NS Offload',
-  'Wake on Magic Packet',
-  'Wake on pattern match',
-  'WOL & Shutdown Link Speed',
-  'ITR',
-  'Receive Buffers',
-  'Transmit Buffers'
-)
+# QoS naming ownership boundaries managed by this module.
+# Only these prefixes are treated as removable/restorable managed policies.
+$script:UjManagedQosNamePrefixes = @('QoS_UDP_TS_', 'QoS_UDP_CS2_', 'QoS_APP_')
+
+# Maximum number of per-port QoS policies (cap for large port ranges)
+$script:UjMaxPortPolicies = 100
 
 # Standardized Registry Keywords (Microsoft specification) for NIC properties.
 # These are locale-independent and driver-agnostic.

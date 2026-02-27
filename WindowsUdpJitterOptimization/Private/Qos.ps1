@@ -4,10 +4,17 @@ function Get-UjManagedQosPolicy {
   param()
 
   try {
-    Get-NetQosPolicy -ErrorAction Stop | Where-Object { $_.Name -like 'QoS_*' }
+    Get-NetQosPolicy -ErrorAction Stop | Where-Object {
+      $name = [string]$_.Name
+      foreach ($prefix in $script:UjManagedQosNamePrefixes) {
+        if ($name.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+          return $true
+        }
+      }
+      return $false
+    }
   } catch {
     Write-Warning -Message ("Get-NetQosPolicy failed: {0}. Treat as no managed policies." -f $_.Exception.Message)
-    # P3-1 Fix: Add verbose logging for diagnostics
     Write-Verbose -Message "QoS query failure - backup/restore may be incomplete. Error: $($_.Exception.Message)"
     return
   }
@@ -55,7 +62,7 @@ function New-UjDscpPolicyByPort {
   }
 
   $portCount = [int]$PortEnd - [int]$PortStart + 1
-  $maxIndividualPolicies = 100
+  $maxIndividualPolicies = $script:UjMaxPortPolicies
 
   if ($portCount -gt $maxIndividualPolicies) {
     Write-Warning -Message ("Port range too large ({0} ports). Windows QoS PolicyAgent may experience performance issues with many individual policies." -f $portCount)
