@@ -1,5 +1,6 @@
 function Get-UjRestoreComponentResult {
   [CmdletBinding()]
+  [OutputType([pscustomobject])]
   param(
     [Parameter(Mandatory)]
     [ValidateSet('OK', 'Warn', 'Skipped')]
@@ -56,6 +57,7 @@ function Resolve-UjRestoreStatus {
 
 function Backup-UjState {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [string]$BackupFolder,
@@ -129,9 +131,7 @@ function Backup-UjState {
     $powerPlanOutput = & powercfg /GetActiveScheme 2>&1
     if ($LASTEXITCODE -eq 0 -and $powerPlanOutput) {
       $text = $powerPlanOutput -join "`n"
-      $guid = $null
-      if ($text -match '\{([0-9a-fA-F-]+)\}') { $guid = $Matches[0] }
-      elseif ($text -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { $guid = '{' + $Matches[1] + '}' }
+      $guid = Get-UjGuidFromText -Text $text
 
       if ($guid) {
         $guid | Out-File -FilePath (Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFilePowerplan) -Encoding utf8 -NoNewline
@@ -153,6 +153,7 @@ function Backup-UjState {
 
 function Restore-UjRegistryFromBackup {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([pscustomobject])]
   param([Parameter(Mandatory)][string]$BackupFolder)
 
   $ok = $true
@@ -183,6 +184,7 @@ function Restore-UjRegistryFromBackup {
 
 function Restore-UjQosFromBackup {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([pscustomobject])]
   param([Parameter(Mandatory)][string]$BackupFolder)
 
   $qosInventory = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileQosOurs
@@ -273,6 +275,7 @@ function Restore-UjQosFromBackup {
 
 function Restore-UjNicFromBackup {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([pscustomobject])]
   param([Parameter(Mandatory)][string]$BackupFolder)
 
   $csv = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileNicAdvanced
@@ -332,6 +335,7 @@ function Restore-UjNicFromBackup {
 
 function Restore-UjRscFromBackup {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([pscustomobject])]
   param([Parameter(Mandatory)][string]$BackupFolder)
 
   $rscFile = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFileRsc
@@ -376,6 +380,7 @@ function Restore-UjRscFromBackup {
 
 function Restore-UjPowerPlanFromBackup {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([pscustomobject])]
   param([Parameter(Mandatory)][string]$BackupFolder)
 
   $powerPlanFile = Join-Path -Path $BackupFolder -ChildPath $script:UjBackupFilePowerplan
@@ -384,12 +389,7 @@ function Restore-UjPowerPlanFromBackup {
   }
 
   $text = Get-Content -Path $powerPlanFile -Raw
-  $guid = $null
-  if ($text -match '\{([0-9a-fA-F-]+)\}') {
-    $guid = $Matches[0]
-  } elseif ($text -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') {
-    $guid = '{' + $Matches[1] + '}'
-  }
+  $guid = Get-UjGuidFromText -Text $text
 
   if (-not $guid) {
     Write-Warning -Message 'Power plan restore skipped: no valid GUID found in powerplan.txt.'

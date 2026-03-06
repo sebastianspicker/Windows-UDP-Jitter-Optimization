@@ -111,6 +111,10 @@ function Invoke-UdpJitterOptimization {
     throw 'CS2PortEnd must be greater than or equal to CS2PortStart.'
   }
 
+  if ($Action -eq 'Apply' -and $TeamSpeakPort -ge $CS2PortStart -and $TeamSpeakPort -le $CS2PortEnd) {
+    Write-Warning -Message ("TeamSpeak port {0} falls within CS2 port range {1}-{2}. QoS policies may conflict." -f $TeamSpeakPort, $CS2PortStart, $CS2PortEnd)
+  }
+
   if ($Action -in @('Backup', 'Restore', 'Apply') -and [string]::IsNullOrWhiteSpace($BackupFolder)) {
     throw 'BackupFolder must not be empty.'
   }

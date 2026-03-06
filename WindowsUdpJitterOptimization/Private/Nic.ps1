@@ -8,6 +8,7 @@ function Get-UjPhysicalUpAdapter {
 
 function Set-UjNicAdvancedPropertyIfSupported {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [string]$Name,
@@ -22,7 +23,7 @@ function Set-UjNicAdvancedPropertyIfSupported {
     [switch]$DryRun
   )
 
-  # P0 Fix: Prefer standardized RegistryKeywords over localized DisplayNames
+  # Prefer standardized RegistryKeywords over localized DisplayNames
   $keyword = if ($script:UjNicKeywordMap.ContainsKey($DisplayName)) { $script:UjNicKeywordMap[$DisplayName] } else { $null }
 
   $property = if ($keyword) {
@@ -60,6 +61,7 @@ function Set-UjNicAdvancedPropertyIfSupported {
 
 function Set-UjNicConfiguration {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [ValidateSet(1, 2, 3)]
@@ -115,15 +117,11 @@ function Set-UjNicConfiguration {
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Wake on pattern match' -Value 'Disabled' -DryRun:$DryRun
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'WOL & Shutdown Link Speed' -Value 'Disabled' -DryRun:$DryRun
 
-      # P1-4 Fix: Use RegistryKeyword for ITR lookup (locale-independent)
-      $itr = Get-NetAdapterAdvancedProperty -Name $nic.Name -RegistryKeyword '*InterruptModerationRate' -ErrorAction SilentlyContinue
-      if ($itr) {
-        Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'ITR' -Value '0' -DryRun:$DryRun
-      }
+      # ITR is looked up via RegistryKeyword inside Set-UjNicAdvancedPropertyIfSupported; no pre-check needed
+      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'ITR' -Value '0' -DryRun:$DryRun
 
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Receive Buffers' -Value '256' -DryRun:$DryRun
       Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Transmit Buffers' -Value '256' -DryRun:$DryRun
     }
   }
 }
-

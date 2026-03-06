@@ -1,5 +1,6 @@
 function Get-UjRegistryPathForRegExe {
   [CmdletBinding()]
+  [OutputType([string])]
   param([Parameter(Mandatory)][string]$Path)
   # Converts 'HKLM:\...' to 'HKLM\...' for reg.exe compatibility
   return $Path -replace '^HKLM:', 'HKLM' -replace '^HKCU:', 'HKCU' -replace '^HKCR:', 'HKCR' -replace '^HKU:', 'HKU'
@@ -63,6 +64,7 @@ function Import-UjRegistryFile {
 
 function Set-UjRegistryValue {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [string]$Key,
@@ -96,4 +98,3 @@ function Set-UjRegistryValue {
 
   New-ItemProperty -Path $Key -Name $Name -PropertyType String -Value ([string]$Value) -Force | Out-Null
 }
-

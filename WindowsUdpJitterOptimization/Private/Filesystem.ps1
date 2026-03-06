@@ -1,5 +1,6 @@
 function New-UjDirectory {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [string]$Path
@@ -37,7 +38,7 @@ function Test-UjUnsafeBackupFolder {
     $canonicalFull = [System.IO.Path]::GetFullPath($Path).Replace('/', '\').TrimEnd('\')
   } catch {
     # Keep original canonical input when full path resolution is not possible.
-    $null = $_
+    Write-Verbose -Message ("Path resolution failed for '{0}': {1}" -f $Path, $_.Exception.Message)
   }
 
   $windirSystem32 = $null

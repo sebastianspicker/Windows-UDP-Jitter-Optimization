@@ -1,5 +1,6 @@
 function Write-UjInformation {
   [CmdletBinding()]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [string]$Message
@@ -7,4 +8,3 @@ function Write-UjInformation {
 
   Write-Information -MessageData $Message -InformationAction Continue
 }
-

@@ -1,5 +1,6 @@
 function Reset-UjBaseline {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param(
     [Parameter()]
     [switch]$DryRun

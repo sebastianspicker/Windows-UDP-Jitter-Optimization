@@ -27,6 +27,11 @@ $script:UjBackupFilePowerplan = 'powerplan.txt'
 # Default DSCP value for QoS policies (EF / Expedited Forwarding)
 $script:UjDefaultDscp = 46
 
+# Windows power plan GUIDs
+$script:UjPowerPlanGuidBalanced        = '381b4222-f694-41f0-9685-ff5bb260df2e'
+$script:UjPowerPlanGuidHighPerformance = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+$script:UjPowerPlanGuidUltimate        = 'e9a42b02-d5df-448d-aa00-03f14749eb61'
+
 # QoS naming ownership boundaries managed by this module.
 # Only these prefixes are treated as removable/restorable managed policies.
 $script:UjManagedQosNamePrefixes = @('QoS_UDP_TS_', 'QoS_UDP_CS2_', 'QoS_APP_')
@@ -54,13 +59,13 @@ $script:UjNicKeywordMap = @{
   'ITR'                            = '*InterruptModerationRate'
   'Receive Buffers'                = '*ReceiveBuffers'
   'Transmit Buffers'               = '*TransmitBuffers'
-  # P2-2 Fix: Add missing keywords for Green Ethernet, Power Saving Mode, WOL & Shutdown Link Speed
+  # Additional standardized keywords for NIC power and link properties
   'Green Ethernet'                 = '*GreenEthernet'
   'Power Saving Mode'              = '*PowerSavingMode'
   'WOL & Shutdown Link Speed'      = '*WakeOnLink'
 }
 
-# P2-3 Fix: Keywords for reset operations (locale-independent)
+# Keywords for reset operations (locale-independent)
 $script:UjNicResetKeywords = @(
   '*EEE', '*InterruptModeration', '*FlowControl', '*GreenEthernet', '*PowerSavingMode',
   '*JumboPacket', '*LsoV2IPv4', '*LsoV2IPv6', '*UDPChecksumOffloadIPv4', '*UDPChecksumOffloadIPv6',

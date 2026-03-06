@@ -27,6 +27,7 @@ Add-Type -AssemblyName System.Drawing
 
 $script:ModuleLoaded = $false
 $script:IsRunInProgress = $false
+$script:IsAdministrator = $false
 # Fallback when module not loaded; otherwise use Get-UjDefaultBackupFolder after load (see Form_Load)
 $defaultBackupFolder = Join-Path -Path (if ([string]::IsNullOrWhiteSpace($env:ProgramData)) { 'C:\ProgramData' } else { $env:ProgramData }) -ChildPath 'UDPTune'
 
@@ -50,8 +51,17 @@ function Import-UjModuleOnce {
 }
 
 function Show-UjValidationMessage {
+  [CmdletBinding()]
+  [OutputType([void])]
   param([Parameter(Mandatory)][string]$Message)
   [System.Windows.Forms.MessageBox]::Show($Message, 'Validation', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+}
+
+function Update-UjRunButtonState {
+  [CmdletBinding()]
+  [OutputType([void])]
+  param()
+  $btnRun.Enabled = $script:IsAdministrator -or $chkDryRun.Checked
 }
 
 $form = New-Object System.Windows.Forms.Form
@@ -80,7 +90,7 @@ $comboAction.SelectedIndex = 0
 $form.Controls.Add($comboAction)
 $y += $rowHeight
 
-# Preset (for Apply)
+# Preset (for Apply) - descriptive labels convey risk level at a glance
 $lblPreset = New-Object System.Windows.Forms.Label
 $lblPreset.Location = New-Object System.Drawing.Point(12, $y)
 $lblPreset.Size = New-Object System.Drawing.Size(80, $labelHeight)
@@ -88,9 +98,9 @@ $lblPreset.Text = 'Preset:'
 $form.Controls.Add($lblPreset)
 $comboPreset = New-Object System.Windows.Forms.ComboBox
 $comboPreset.Location = New-Object System.Drawing.Point(100, $y - 2)
-$comboPreset.Size = New-Object System.Drawing.Size(80, 24)
+$comboPreset.Size = New-Object System.Drawing.Size(180, 24)
 $comboPreset.DropDownStyle = 'DropDownList'
-@(1, 2, 3) | ForEach-Object { [void]$comboPreset.Items.Add($_) }
+@('1 (Conservative)', '2 (Medium)', '3 (Higher Risk)') | ForEach-Object { [void]$comboPreset.Items.Add($_) }
 $comboPreset.SelectedIndex = 0
 $form.Controls.Add($comboPreset)
 $y += $rowHeight
@@ -105,11 +115,13 @@ $txtBackup = New-Object System.Windows.Forms.TextBox
 $txtBackup.Location = New-Object System.Drawing.Point(100, $y - 2)
 $txtBackup.Size = New-Object System.Drawing.Size(380, 22)
 $txtBackup.Text = $defaultBackupFolder
+$txtBackup.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 $form.Controls.Add($txtBackup)
 $btnBrowse = New-Object System.Windows.Forms.Button
 $btnBrowse.Location = New-Object System.Drawing.Point(488, $y - 3)
 $btnBrowse.Size = New-Object System.Drawing.Size(90, 24)
 $btnBrowse.Text = 'Browse...'
+$btnBrowse.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
 $form.Controls.Add($btnBrowse)
 $y += $rowHeight
 
@@ -202,6 +214,7 @@ $txtAppPaths.Location = New-Object System.Drawing.Point(12, $y)
 $txtAppPaths.Multiline = $true
 $txtAppPaths.Size = New-Object System.Drawing.Size(566, 44)
 $txtAppPaths.ScrollBars = 'Vertical'
+$txtAppPaths.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 $form.Controls.Add($txtAppPaths)
 $y += 50
 
@@ -213,12 +226,17 @@ $lblAdmin.Text = 'Loading...'
 $form.Controls.Add($lblAdmin)
 $y += $labelHeight + 6
 
-# Run button
+# Run and Copy Log buttons
 $btnRun = New-Object System.Windows.Forms.Button
 $btnRun.Location = New-Object System.Drawing.Point(12, $y)
 $btnRun.Size = New-Object System.Drawing.Size(100, 28)
 $btnRun.Text = 'Run'
 $form.Controls.Add($btnRun)
+$btnCopyLog = New-Object System.Windows.Forms.Button
+$btnCopyLog.Location = New-Object System.Drawing.Point(120, $y)
+$btnCopyLog.Size = New-Object System.Drawing.Size(90, 28)
+$btnCopyLog.Text = 'Copy Log'
+$form.Controls.Add($btnCopyLog)
 $y += 36
 
 # Log area
@@ -233,11 +251,25 @@ $txtLog.Location = New-Object System.Drawing.Point(12, $y)
 $txtLog.Multiline = $true
 $txtLog.ScrollBars = 'Vertical'
 $txtLog.ReadOnly = $true
+$txtLog.Font = New-Object System.Drawing.Font('Consolas', 9)
 $txtLog.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 $txtLog.Size = New-Object System.Drawing.Size(566, 220)
 $form.Controls.Add($txtLog)
 
+# StatusStrip for progress feedback
+$statusStrip = New-Object System.Windows.Forms.StatusStrip
+$statusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
+$statusLabel.Text = 'Ready'
+[void]$statusStrip.Items.Add($statusLabel)
+$form.Controls.Add($statusStrip)
+
+$form.Add_Resize({
+  $txtLog.Height = [Math]::Max(100, $form.ClientSize.Height - $y - 12 - $statusStrip.Height)
+})
+
 function Add-UjGuiLog {
+  [CmdletBinding()]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)][string]$Phase,
     [Parameter(Mandatory)][string]$Message
@@ -252,7 +284,10 @@ function Resolve-UjGuiRunParameter {
 
   $action = $comboAction.SelectedItem.ToString()
   $backupFolder = $txtBackup.Text.Trim()
-  $preset = [int]$comboPreset.SelectedItem
+
+  # Parse preset number from descriptive label (e.g. '1 (Conservative)' → 1)
+  $presetStr = $comboPreset.SelectedItem.ToString()
+  $preset = if ($presetStr -match '^(\d+)') { [int]$Matches[1] } else { 1 }
 
   if ($action -in @('Apply', 'Backup', 'Restore')) {
     if ([string]::IsNullOrWhiteSpace($backupFolder)) {
@@ -293,6 +328,16 @@ function Resolve-UjGuiRunParameter {
     if ($cs2End -lt $cs2Start) {
       Show-UjValidationMessage -Message 'CS2 end port must be >= start port.'
       return [pscustomobject]@{ IsValid = $false }
+    }
+
+    # Informational warnings (non-blocking)
+    if ($teamSpeakPort -ge $cs2Start -and $teamSpeakPort -le $cs2End) {
+      Show-UjValidationMessage -Message ("TeamSpeak port {0} overlaps with CS2 port range {1}-{2}. QoS policies may conflict." -f $teamSpeakPort, $cs2Start, $cs2End)
+    }
+
+    $portCount = $cs2End - $cs2Start + 1
+    if ($portCount -gt 100) {
+      Show-UjValidationMessage -Message ("CS2 port range covers {0} ports. Only the first 100 will receive individual QoS policies. Consider using app-based policies for broader coverage." -f $portCount)
     }
 
     try {
@@ -339,6 +384,9 @@ function Resolve-UjGuiRunParameter {
 }
 
 function Get-UjControlState {
+  [CmdletBinding()]
+  [OutputType([void])]
+  param()
   $action = if ($comboAction.SelectedItem) { $comboAction.SelectedItem.ToString() } else { 'Apply' }
   $isApply = $action -eq 'Apply'
   $needsBackupFolder = $action -in @('Apply', 'Backup', 'Restore')
@@ -357,12 +405,15 @@ function Get-UjControlState {
   }
 }
 
-$form.Add_Resize({
-  $txtLog.Height = [Math]::Max(100, $form.ClientSize.Height - $y - 12)
-})
-
 $form.Add_Load({
   if (Import-UjModuleOnce) {
+    try {
+      $mod = Get-Module -Name WindowsUdpJitterOptimization -ErrorAction SilentlyContinue
+      if ($mod) { $form.Text = "UDP Jitter Optimization v$($mod.Version)" }
+    } catch {
+      # Keep default title when version is unavailable
+      $null = $_
+    }
     try {
       $script:defaultBackupFolder = Get-UjDefaultBackupFolder
       $txtBackup.Text = $script:defaultBackupFolder
@@ -372,10 +423,12 @@ $form.Add_Load({
     }
     try {
       if (Test-UjIsAdministrator) {
+        $script:IsAdministrator = $true
         $lblAdmin.Text = 'Running as Administrator.'
         $lblAdmin.ForeColor = [System.Drawing.Color]::DarkGreen
       } else {
-        $lblAdmin.Text = 'Not running as Administrator. Apply/Backup/Restore/Reset may fail.'
+        $script:IsAdministrator = $false
+        $lblAdmin.Text = 'Not running as Administrator. Right-click PowerShell > Run as Administrator.'
         $lblAdmin.ForeColor = [System.Drawing.Color]::DarkRed
       }
     } catch {
@@ -393,11 +446,13 @@ $form.Add_Load({
     )
   }
 
+  Update-UjRunButtonState
   Get-UjControlState
 })
 
 $comboAction.Add_SelectedIndexChanged({ Get-UjControlState })
 $chkIncludeAppPolicies.Add_CheckedChanged({ Get-UjControlState })
+$chkDryRun.Add_CheckedChanged({ Update-UjRunButtonState })
 
 $btnBrowse.Add_Click({
   $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -405,6 +460,13 @@ $btnBrowse.Add_Click({
   $dialog.SelectedPath = $txtBackup.Text
   if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     $txtBackup.Text = $dialog.SelectedPath
+  }
+})
+
+$btnCopyLog.Add_Click({
+  if (-not [string]::IsNullOrWhiteSpace($txtLog.Text)) {
+    [System.Windows.Forms.Clipboard]::SetText($txtLog.Text)
+    $statusLabel.Text = 'Log copied to clipboard.'
   }
 })
 
@@ -419,9 +481,13 @@ $btnRun.Add_Click({
   }
 
   $action = $comboAction.SelectedItem.ToString()
-  if ($action -in @('Restore', 'ResetDefaults')) {
+  if ($action -in @('Apply', 'Restore', 'ResetDefaults') -and -not $chkDryRun.Checked) {
+    $confirmMsg =
+      if ($action -eq 'Apply') { ("Really apply {0}? This will change system settings." -f $comboPreset.SelectedItem) }
+      elseif ($action -eq 'Restore') { 'Really restore settings from backup? This will change system settings.' }
+      else { 'Really reset to defaults? This will change system settings.' }
     $confirm = [System.Windows.Forms.MessageBox]::Show(
-      "Really run $action? This will change system settings.",
+      $confirmMsg,
       'Confirm',
       [System.Windows.Forms.MessageBoxButtons]::YesNo,
       [System.Windows.Forms.MessageBoxIcon]::Question
@@ -442,10 +508,13 @@ $btnRun.Add_Click({
 
   $script:IsRunInProgress = $true
   $btnRun.Enabled = $false
+  $statusLabel.Text = 'Running...'
+  $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
   $txtLog.Clear()
   Add-UjGuiLog -Phase 'Validate' -Message 'Inputs validated.'
   Add-UjGuiLog -Phase $phase -Message ("Running action (Preset {0})." -f $preset)
 
+  $runSuccess = $true
   try {
     $InformationPreference = 'Continue'
     $output = Invoke-UdpJitterOptimization @params 6>&1 3>&1
@@ -453,14 +522,28 @@ $btnRun.Add_Click({
       Add-UjGuiLog -Phase 'Output' -Message ([string]$line)
     }
     Add-UjGuiLog -Phase 'Done' -Message 'Completed.'
+    $statusLabel.Text = 'Completed.'
   } catch {
+    $runSuccess = $false
     Add-UjGuiLog -Phase 'Error' -Message $_.Exception.Message
     if ($_.ScriptStackTrace) {
       Add-UjGuiLog -Phase 'Error' -Message $_.ScriptStackTrace
     }
+    $statusLabel.Text = 'Completed with errors.'
   } finally {
+    $form.Cursor = [System.Windows.Forms.Cursors]::Default
     $script:IsRunInProgress = $false
-    $btnRun.Enabled = $true
+    Update-UjRunButtonState
+  }
+
+  # Reboot recommendation after successful non-DryRun system changes
+  if ($runSuccess -and -not $chkDryRun.Checked -and $action -in @('Apply', 'Restore', 'ResetDefaults')) {
+    [System.Windows.Forms.MessageBox]::Show(
+      'Changes applied. A system reboot is recommended for registry-based settings to take full effect.',
+      'Reboot Recommended',
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Information
+    ) | Out-Null
   }
 })
 

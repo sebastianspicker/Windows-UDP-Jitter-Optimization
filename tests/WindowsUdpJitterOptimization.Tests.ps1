@@ -187,4 +187,64 @@ Describe 'WindowsUdpJitterOptimization repo' {
       $result.BackupFolder | Should -Be (Get-UjDefaultBackupFolder)
     }
   }
+
+  Context 'GUID helper' {
+    InModuleScope WindowsUdpJitterOptimization {
+      It 'Get-UjGuidFromText returns braced GUID when input already contains braces' {
+        $result = Get-UjGuidFromText -Text '{8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c}'
+        $result | Should -Be '{8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c}'
+      }
+
+      It 'Get-UjGuidFromText wraps bare GUID in braces' {
+        $result = Get-UjGuidFromText -Text 'Power Scheme GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c  (High performance)'
+        $result | Should -Be '{8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c}'
+      }
+
+      It 'Get-UjGuidFromText returns null when no GUID is present' {
+        $result = Get-UjGuidFromText -Text 'no guid here'
+        $result | Should -BeNullOrEmpty
+      }
+    }
+  }
+
+  Context 'Power plan constants' {
+    InModuleScope WindowsUdpJitterOptimization {
+      It 'power plan GUID constants are defined and non-empty' {
+        $script:UjPowerPlanGuidBalanced        | Should -Not -BeNullOrEmpty
+        $script:UjPowerPlanGuidHighPerformance | Should -Not -BeNullOrEmpty
+        $script:UjPowerPlanGuidUltimate        | Should -Not -BeNullOrEmpty
+      }
+
+      It 'power plan GUID constants match GUID format' {
+        $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        $script:UjPowerPlanGuidBalanced        | Should -Match $guidPattern
+        $script:UjPowerPlanGuidHighPerformance | Should -Match $guidPattern
+        $script:UjPowerPlanGuidUltimate        | Should -Match $guidPattern
+      }
+    }
+  }
+
+  Context 'Port overlap validation' {
+    InModuleScope WindowsUdpJitterOptimization {
+      It 'emits a warning when TeamSpeak port falls within CS2 port range' {
+        Mock -CommandName Backup-UjState
+        Mock -CommandName Set-UjMmcssAudioSafety
+        Mock -CommandName Start-UjAudioService
+        Mock -CommandName Enable-UjLocalQosMarking
+        Mock -CommandName New-UjDscpPolicyByPort
+        Mock -CommandName Set-UjNicConfiguration
+        Mock -CommandName Set-UjAfdFastSendDatagramThreshold
+        Mock -CommandName Set-UjUndocumentedNetworkMmcssTuning
+        Mock -CommandName Show-UjSummary
+
+        $capturedWarnings = $null
+        Invoke-UdpJitterOptimization -Action Apply -SkipAdminCheck -DryRun -Confirm:$false `
+          -TeamSpeakPort 27015 -CS2PortStart 27015 -CS2PortEnd 27036 `
+          -WarningVariable capturedWarnings
+
+        $capturedWarnings | Should -Not -BeNullOrEmpty
+        ($capturedWarnings | Where-Object { $_ -match 'TeamSpeak port' }) | Should -Not -BeNullOrEmpty
+      }
+    }
+  }
 }

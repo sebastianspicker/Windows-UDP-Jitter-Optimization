@@ -1,5 +1,6 @@
 function Set-UjMmcssAudioSafety {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter()]
     [switch]$DryRun
@@ -32,6 +33,7 @@ function Set-UjMmcssAudioSafety {
 
 function Start-UjAudioService {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter()]
     [switch]$DryRun
@@ -64,6 +66,7 @@ function Start-UjAudioService {
 
 function Enable-UjLocalQosMarking {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter()]
     [switch]$DryRun
@@ -84,6 +87,7 @@ function Enable-UjLocalQosMarking {
 
 function Set-UjAfdFastSendDatagramThreshold {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [ValidateSet(1, 2, 3)]
@@ -117,6 +121,7 @@ function Set-UjAfdFastSendDatagramThreshold {
 
 function Set-UjUndocumentedNetworkMmcssTuning {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [ValidateSet(1, 2, 3)]
@@ -146,6 +151,7 @@ function Set-UjUndocumentedNetworkMmcssTuning {
 
 function Set-UjUroState {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [ValidateSet('Enabled', 'Disabled')]
@@ -177,6 +183,7 @@ function Set-UjUroState {
 
 function Set-UjPowerPlan {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [ValidateSet('Balanced', 'HighPerformance', 'Ultimate')]
@@ -186,14 +193,10 @@ function Set-UjPowerPlan {
     [switch]$DryRun
   )
 
-  $guidHigh = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
-  $guidUlt = 'e9a42b02-d5df-448d-aa00-03f14749eb61'
-  $guidBalanced = '381b4222-f694-41f0-9685-ff5bb260df2e'
-
   $guid =
-    if ($PowerPlan -eq 'HighPerformance') { $guidHigh }
-    elseif ($PowerPlan -eq 'Ultimate') { $guidUlt }
-    else { $guidBalanced }
+    if ($PowerPlan -eq 'HighPerformance') { $script:UjPowerPlanGuidHighPerformance }
+    elseif ($PowerPlan -eq 'Ultimate') { $script:UjPowerPlanGuidUltimate }
+    else { $script:UjPowerPlanGuidBalanced }
 
   if ($DryRun) {
     Write-UjInformation -Message ("[DryRun] powercfg /S {0}" -f $guid)
@@ -206,14 +209,10 @@ function Set-UjPowerPlan {
 
   if ($PowerPlan -eq 'Ultimate') {
     try {
-      $dupOut = & powercfg /duplicatescheme $guidUlt 2>&1
+      $dupOut = & powercfg /duplicatescheme $script:UjPowerPlanGuidUltimate 2>&1
       if ($LASTEXITCODE -eq 0 -and $dupOut) {
-        $dupText = $dupOut -join ' '
-        if ($dupText -match '\{([0-9a-fA-F-]+)\}') {
-          $guid = $Matches[0]
-        } elseif ($dupText -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') {
-          $guid = '{' + $Matches[1] + '}'
-        }
+        $parsedGuid = Get-UjGuidFromText -Text ($dupOut -join ' ')
+        if ($parsedGuid) { $guid = $parsedGuid }
       }
     } catch {
       Write-Verbose -Message 'powercfg /duplicatescheme failed.'
@@ -228,6 +227,7 @@ function Set-UjPowerPlan {
 
 function Set-UjGameDvrState {
   [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [ValidateSet('Enabled', 'Disabled')]
@@ -258,6 +258,7 @@ function Set-UjGameDvrState {
 
 function Show-UjSummary {
   [CmdletBinding()]
+  [OutputType([void])]
   param()
 
   Write-UjInformation -Message "`n=== Performance Summary ==="

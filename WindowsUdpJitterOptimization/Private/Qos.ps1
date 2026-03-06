@@ -22,6 +22,7 @@ function Get-UjManagedQosPolicy {
 
 function Remove-UjManagedQosPolicy {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param()
 
   foreach ($policy in (Get-UjManagedQosPolicy)) {
@@ -39,6 +40,7 @@ function Remove-UjManagedQosPolicy {
 
 function New-UjDscpPolicyByPort {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [string]$Name,
@@ -104,6 +106,7 @@ function New-UjDscpPolicyByPort {
 
 function New-UjDscpPolicyByApp {
   [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  [OutputType([void])]
   param(
     [Parameter(Mandatory)]
     [string]$Name,
