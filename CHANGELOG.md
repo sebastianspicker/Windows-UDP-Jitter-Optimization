@@ -4,7 +4,43 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [2.0.0] - Setting Reclassification
+
+### Breaking Changes
+
+- **Preset 3 no longer applies TCP-only, WoL-only, or unproven settings** (TCP checksum offload, LSO, RSC, ARP/NS offload, Wake-on-* settings, Jumbo Packet, Receive/Transmit Buffers, MMCSS Audio Task tuning). To get the old Preset 3 behavior, use `-IncludeExperimental`.
+- `Set-UjMmcssAudioSafety` renamed to `Set-UjMmcssAudioTaskTuning` (private function; no public API change).
+- `Set-UjUndocumentedNetworkMmcssTuning` replaced by `Set-UjNetworkThrottlingIndex` and `Set-UjSystemResponsiveness` (private functions; no public API change).
+
+### Added
+
+- **`-IncludeExperimental` switch** on `Invoke-UdpJitterOptimization`, CLI wrapper, and GUI. Applies TCP-only, WoL/sleep-only, and unproven settings on top of any preset.
+- **Evidence-based setting classification** into Tier 1 (Safe), Tier 2 (Moderate), Tier 3 (Aggressive), and Experimental. See `docs/DOCUMENTATION.md` for the full classification table.
+- **NIC keyword tier arrays** in Constants.ps1 (`UjNicKeywordsTier1/2/3/Experimental`) replace the flat keyword list.
+- **Reverse keyword map** (`UjNicKeywordReverseMap`) for automatic display name resolution.
+- `NetworkThrottlingIndex` moved from Preset 3 to Preset 2 (well-documented MMCSS setting).
+- `SystemResponsiveness` now uses preset-dependent values: 20 (Preset 1), 10 (Preset 2), 0 (Preset 3).
+- `*GreenEthernet` and `*PowerSavingMode` moved from Preset 2 to Preset 1 (same zero-risk category as EEE).
+- GUI: "Include experimental" checkbox; updated preset labels to Safe/Moderate/Aggressive.
+- Tests: NIC keyword tier overlap detection, reverse map coverage, `IncludeExperimental` in PassThru schema.
+- Reset now cleans up `Tasks\Audio` registry key (written by experimental MMCSS Audio Task tuning).
+- `IncludeExperimental` field in `-PassThru` result schema.
+
+### Migration Guide
+
+If you previously used **Preset 3** and relied on TCP offload disables, WoL disables, RSC disable, buffer tuning, or MMCSS Audio Task tuning, add `-IncludeExperimental` to get the same behavior:
+
+```powershell
+# Old (v1.x): Preset 3 applied everything
+.\optimize-udp-jitter.ps1 -Action Apply -Preset 3
+
+# New (v2.0): Preset 3 + experimental to match old behavior
+.\optimize-udp-jitter.ps1 -Action Apply -Preset 3 -IncludeExperimental
+```
+
+Reset (`-Action ResetDefaults`) continues to reset ALL settings regardless of what was applied, including experimental settings.
+
+## [1.1.0] - Previous Release
 
 ### Added
 

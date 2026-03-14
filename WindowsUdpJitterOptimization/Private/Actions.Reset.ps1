@@ -13,6 +13,7 @@ function Reset-UjBaseline {
   $mmKey = $script:UjRegistryPathSystemProfile
   $afdKey = $script:UjRegistryPathAfdParameters
   $gamesKey = Join-Path -Path $mmKey -ChildPath 'Tasks\Games'
+  $audioKey = Join-Path -Path $mmKey -ChildPath 'Tasks\Audio'
   $qosRegKey = $script:UjRegistryPathQos
 
   if (-not $DryRun -and $PSCmdlet.ShouldProcess($mmKey, 'Remove registry tweaks')) {
@@ -29,8 +30,11 @@ function Reset-UjBaseline {
     if (Test-Path -Path $gamesKey) {
       Remove-Item -Path $gamesKey -Recurse -Force -ErrorAction SilentlyContinue
     }
+    if (Test-Path -Path $audioKey) {
+      Remove-Item -Path $audioKey -Recurse -Force -ErrorAction SilentlyContinue
+    }
   } elseif ($DryRun) {
-    Write-UjInformation -Message '[DryRun] Remove registry tweaks (Throttling/Responsiveness/AFD/MMCSS Games)'
+    Write-UjInformation -Message '[DryRun] Remove registry tweaks (Throttling/Responsiveness/AFD/MMCSS Games/Audio)'
   }
 
   Set-UjGameDvrState -State Enabled -DryRun:$DryRun

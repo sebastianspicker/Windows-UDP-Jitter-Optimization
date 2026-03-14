@@ -1,6 +1,6 @@
 @{
   RootModule        = 'WindowsUdpJitterOptimization.psm1'
-  ModuleVersion     = '1.1.0'
+  ModuleVersion     = '2.0.0'
   GUID              = 'd73b26e7-18cb-49c7-9af3-f5d8fd6fa34c'
   Author            = 'Sebastian J. Spicker'
   CompanyName       = ''

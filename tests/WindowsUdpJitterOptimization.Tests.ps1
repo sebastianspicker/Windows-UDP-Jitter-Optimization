@@ -37,14 +37,22 @@ Describe 'WindowsUdpJitterOptimization repo' {
 
   Context 'DryRun safety' {
     InModuleScope WindowsUdpJitterOptimization {
-      It 'skips MMCSS registry changes on DryRun' {
+      It 'skips MMCSS audio task tuning on DryRun' {
         Mock -CommandName Set-UjRegistryValue
         Mock -CommandName New-Item
 
-        Set-UjMmcssAudioSafety -DryRun
+        Set-UjMmcssAudioTaskTuning -DryRun
 
         Assert-MockCalled -CommandName Set-UjRegistryValue -Times 0
         Assert-MockCalled -CommandName New-Item -Times 0
+      }
+
+      It 'skips SystemResponsiveness on DryRun' {
+        Mock -CommandName Set-UjRegistryValue
+
+        Set-UjSystemResponsiveness -Preset 1 -DryRun
+
+        Assert-MockCalled -CommandName Set-UjRegistryValue -Times 0
       }
 
       It 'skips audio service changes on DryRun' {
@@ -122,14 +130,15 @@ Describe 'WindowsUdpJitterOptimization repo' {
 
       It 'Apply DryRun with PassThru returns a structured result' {
         Mock -CommandName Backup-UjState
-        Mock -CommandName Set-UjMmcssAudioSafety
+        Mock -CommandName Set-UjMmcssAudioTaskTuning
         Mock -CommandName Start-UjAudioService
+        Mock -CommandName Set-UjSystemResponsiveness
         Mock -CommandName Enable-UjLocalQosMarking
         Mock -CommandName New-UjDscpPolicyByPort
         Mock -CommandName New-UjDscpPolicyByApp
         Mock -CommandName Set-UjNicConfiguration
         Mock -CommandName Set-UjAfdFastSendDatagramThreshold
-        Mock -CommandName Set-UjUndocumentedNetworkMmcssTuning
+        Mock -CommandName Set-UjNetworkThrottlingIndex
         Mock -CommandName Set-UjUroState
         Mock -CommandName Set-UjPowerPlan
         Mock -CommandName Set-UjGameDvrState
@@ -140,6 +149,7 @@ Describe 'WindowsUdpJitterOptimization repo' {
         $result | Should -Not -BeNullOrEmpty
         $result.Action | Should -Be 'Apply'
         $result.Preset | Should -Be 1
+        $result.IncludeExperimental | Should -BeFalse
         $result.DryRun | Should -BeTrue
         $result.Success | Should -BeTrue
         $result.BackupFolder | Should -Match 'UDPTune$'
@@ -224,17 +234,43 @@ Describe 'WindowsUdpJitterOptimization repo' {
     }
   }
 
+  Context 'NIC keyword tier classification' {
+    InModuleScope WindowsUdpJitterOptimization {
+      It 'tier arrays have no overlap' {
+        $all = @($script:UjNicKeywordsTier1 + $script:UjNicKeywordsTier2 + $script:UjNicKeywordsTier3 + $script:UjNicKeywordsExperimental)
+        $unique = $all | Select-Object -Unique
+        $all.Count | Should -Be $unique.Count
+      }
+
+      It 'UjNicResetKeywords is the union of all tier arrays' {
+        $expected = @($script:UjNicKeywordsTier1 + $script:UjNicKeywordsTier2 + $script:UjNicKeywordsTier3 + $script:UjNicKeywordsExperimental)
+        $script:UjNicResetKeywords.Count | Should -Be $expected.Count
+        foreach ($kw in $expected) {
+          $script:UjNicResetKeywords | Should -Contain $kw
+        }
+      }
+
+      It 'reverse map covers all keywords in all tier arrays' {
+        $allKeywords = @($script:UjNicKeywordsTier1 + $script:UjNicKeywordsTier2 + $script:UjNicKeywordsTier3 + $script:UjNicKeywordsExperimental)
+        foreach ($kw in $allKeywords) {
+          $script:UjNicKeywordReverseMap.ContainsKey($kw) | Should -BeTrue -Because "keyword '$kw' should have a reverse map entry"
+        }
+      }
+    }
+  }
+
   Context 'Port overlap validation' {
     InModuleScope WindowsUdpJitterOptimization {
       It 'emits a warning when TeamSpeak port falls within CS2 port range' {
         Mock -CommandName Backup-UjState
-        Mock -CommandName Set-UjMmcssAudioSafety
+        Mock -CommandName Set-UjMmcssAudioTaskTuning
         Mock -CommandName Start-UjAudioService
+        Mock -CommandName Set-UjSystemResponsiveness
         Mock -CommandName Enable-UjLocalQosMarking
         Mock -CommandName New-UjDscpPolicyByPort
         Mock -CommandName Set-UjNicConfiguration
         Mock -CommandName Set-UjAfdFastSendDatagramThreshold
-        Mock -CommandName Set-UjUndocumentedNetworkMmcssTuning
+        Mock -CommandName Set-UjNetworkThrottlingIndex
         Mock -CommandName Show-UjSummary
 
         $capturedWarnings = $null

@@ -7,11 +7,18 @@ function Invoke-UdpJitterOptimization {
     Applies preset-based UDP jitter optimizations (QoS DSCP, NIC tuning, AFD, MMCSS, URO, power plan, Game DVR),
     or backs up/restores state, or resets to baseline. Requires elevation unless -SkipAdminCheck is used.
 
+    Presets apply evidence-based settings:
+    - Preset 1 (Safe): Zero-risk power-saving disables, QoS DSCP, MMCSS service.
+    - Preset 2 (Moderate): Adds interrupt moderation, flow control, AFD, NetworkThrottlingIndex.
+    - Preset 3 (Aggressive): Adds URO, UDP checksum offload, ITR rate.
+
+    Use -IncludeExperimental for TCP-only, WoL-only, and unproven settings.
+
   .PARAMETER Action
     Apply, Backup, Restore, or ResetDefaults.
 
   .PARAMETER Preset
-    Risk level 1 (Conservative), 2 (Medium), 3 (Higher risk). Used when Action is Apply.
+    Risk level 1 (Safe), 2 (Moderate), 3 (Aggressive). Used when Action is Apply.
 
   .PARAMETER BackupFolder
     Directory for backup/restore files. Default: ProgramData\UDPTune.
@@ -75,6 +82,9 @@ function Invoke-UdpJitterOptimization {
 
     [Parameter()]
     [switch]$DisableUro,
+
+    [Parameter()]
+    [switch]$IncludeExperimental,
 
     [Parameter()]
     [string]$BackupFolder = $script:UjDefaultBackupFolder,
@@ -149,16 +159,18 @@ function Invoke-UdpJitterOptimization {
     Reset-UjBaseline -DryRun:$DryRun
     $components['Reset'] = if ($DryRun) { 'Skipped' } else { 'OK' }
   } else {
-    Write-UjInformation -Message ("UDP Jitter Optimization - Preset {0} (Action={1})" -f $Preset, $Action)
+    Write-UjInformation -Message ("UDP Jitter Optimization - Preset {0} (Action={1}){2}" -f $Preset, $Action, $(if ($IncludeExperimental) { ' [+Experimental]' } else { '' }))
 
     Backup-UjState -BackupFolder $BackupFolder -DryRun:$DryRun
     $components['Backup'] = if ($DryRun) { 'Skipped' } else { 'OK' }
 
-    Set-UjMmcssAudioSafety -DryRun:$DryRun
-    $components['MmcssAudioSafety'] = if ($DryRun) { 'Skipped' } else { 'OK' }
-
+    # MMCSS service (enabler for NetworkThrottlingIndex and SystemResponsiveness)
     Start-UjAudioService -DryRun:$DryRun
     $components['AudioServices'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+
+    # SystemResponsiveness: value varies by preset (20/10/0)
+    Set-UjSystemResponsiveness -Preset $Preset -DryRun:$DryRun
+    $components['SystemResponsiveness'] = if ($DryRun) { 'Skipped' } else { 'OK' }
 
     Enable-UjLocalQosMarking -DryRun:$DryRun
     $components['LocalQos'] = if ($DryRun) { 'Skipped' } else { 'OK' }
@@ -181,14 +193,19 @@ function Invoke-UdpJitterOptimization {
       $components['QosAppPolicies'] = 'Skipped'
     }
 
-    Set-UjNicConfiguration -Preset $Preset -DryRun:$DryRun
+    Set-UjNicConfiguration -Preset $Preset -IncludeExperimental:$IncludeExperimental -DryRun:$DryRun
     $components['Nic'] = if ($DryRun) { 'Skipped' } else { 'OK' }
 
     Set-UjAfdFastSendDatagramThreshold -Preset $Preset -AfdThreshold $AfdThreshold -DryRun:$DryRun
     $components['Afd'] = if ($Preset -lt 2) { 'Skipped' } elseif ($DryRun) { 'Skipped' } else { 'OK' }
 
-    Set-UjUndocumentedNetworkMmcssTuning -Preset $Preset -DryRun:$DryRun
-    $components['MmcssNetworkTuning'] = if ($Preset -lt 3) { 'Skipped' } elseif ($DryRun) { 'Skipped' } else { 'OK' }
+    # NetworkThrottlingIndex: Preset 2+ (well-documented MMCSS setting)
+    if ($Preset -ge 2) {
+      Set-UjNetworkThrottlingIndex -DryRun:$DryRun
+      $components['NetworkThrottlingIndex'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+    } else {
+      $components['NetworkThrottlingIndex'] = 'Skipped'
+    }
 
     if ($DisableUro -or $Preset -ge 3) {
       Set-UjUroState -State Disabled -DryRun:$DryRun
@@ -202,6 +219,14 @@ function Invoke-UdpJitterOptimization {
       $components['PowerPlan'] = if ($DryRun) { 'Skipped' } else { 'OK' }
     } else {
       $components['PowerPlan'] = 'Skipped'
+    }
+
+    # Experimental: MMCSS Audio Task tuning (audio scheduling, not UDP network)
+    if ($IncludeExperimental) {
+      Set-UjMmcssAudioTaskTuning -DryRun:$DryRun
+      $components['MmcssAudioTaskTuning'] = if ($DryRun) { 'Skipped' } else { 'OK' }
+    } else {
+      $components['MmcssAudioTaskTuning'] = 'Skipped'
     }
 
     if ($DisableGameDvr) {
@@ -220,13 +245,14 @@ function Invoke-UdpJitterOptimization {
   }
 
   return [pscustomobject]@{
-    Action       = $Action
-    Preset       = if ($Action -eq 'Apply') { $Preset } else { $null }
-    DryRun       = [bool]$DryRun
-    Success      = [bool]$success
-    BackupFolder = if ($Action -in @('Backup', 'Restore', 'Apply')) { $BackupFolder } else { $null }
-    Timestamp    = (Get-Date)
-    Components   = $components
-    Warnings     = @($warnings)
+    Action              = $Action
+    Preset              = if ($Action -eq 'Apply') { $Preset } else { $null }
+    IncludeExperimental = if ($Action -eq 'Apply') { [bool]$IncludeExperimental } else { $null }
+    DryRun              = [bool]$DryRun
+    Success             = [bool]$success
+    BackupFolder        = if ($Action -in @('Backup', 'Restore', 'Apply')) { $BackupFolder } else { $null }
+    Timestamp           = (Get-Date)
+    Components          = $components
+    Warnings            = @($warnings)
   }
 }

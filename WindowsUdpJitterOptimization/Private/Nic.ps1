@@ -68,8 +68,25 @@ function Set-UjNicConfiguration {
     [int]$Preset,
 
     [Parameter()]
+    [switch]$IncludeExperimental,
+
+    [Parameter()]
     [switch]$DryRun
   )
+
+  # Build list of keywords to apply based on preset tier
+  $keywords = [System.Collections.Generic.List[string]]::new()
+  $keywords.AddRange([string[]]$script:UjNicKeywordsTier1)
+  if ($Preset -ge 2) { $keywords.AddRange([string[]]$script:UjNicKeywordsTier2) }
+  if ($Preset -ge 3) { $keywords.AddRange([string[]]$script:UjNicKeywordsTier3) }
+  if ($IncludeExperimental) { $keywords.AddRange([string[]]$script:UjNicKeywordsExperimental) }
+
+  # Special-case values: most keywords get 'Disabled', but some need specific values
+  $specialValues = @{
+    '*InterruptModerationRate' = '0'
+    '*ReceiveBuffers'         = '256'
+    '*TransmitBuffers'        = '256'
+  }
 
   try {
     $adapters = Get-UjPhysicalUpAdapter
@@ -81,18 +98,14 @@ function Set-UjNicConfiguration {
   foreach ($nic in $adapters) {
     Write-UjInformation -Message ("NIC: {0}" -f $nic.Name)
 
-    Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Energy Efficient Ethernet' -Value 'Disabled' -DryRun:$DryRun
-
-    if ($Preset -ge 2) {
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Interrupt Moderation' -Value 'Disabled' -DryRun:$DryRun
-
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Flow Control' -Value 'Disabled' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Green Ethernet' -Value 'Disabled' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Power Saving Mode' -Value 'Disabled' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Jumbo Packet' -Value 'Disabled' -DryRun:$DryRun
+    foreach ($keyword in $keywords) {
+      $displayName = if ($script:UjNicKeywordReverseMap.ContainsKey($keyword)) { $script:UjNicKeywordReverseMap[$keyword] } else { $keyword }
+      $value = if ($specialValues.ContainsKey($keyword)) { $specialValues[$keyword] } else { 'Disabled' }
+      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName $displayName -Value $value -DryRun:$DryRun
     }
 
-    if ($Preset -ge 3) {
+    # RSC disable: only with -IncludeExperimental (RSC is TCP-only coalescing)
+    if ($IncludeExperimental) {
       if ($DryRun) {
         Write-UjInformation -Message ("[DryRun] Disable-NetAdapterRsc {0}" -f $nic.Name)
       } elseif ($PSCmdlet.ShouldProcess($nic.Name, 'Disable NetAdapterRsc')) {
@@ -102,26 +115,6 @@ function Set-UjNicConfiguration {
           Write-Warning -Message ("RSC disable failed on {0}" -f $nic.Name)
         }
       }
-
-      foreach ($displayName in @(
-        'Large Send Offload v2 (IPv4)', 'Large Send Offload v2 (IPv6)',
-        'UDP Checksum Offload (IPv4)', 'UDP Checksum Offload (IPv6)',
-        'TCP Checksum Offload (IPv4)', 'TCP Checksum Offload (IPv6)'
-      )) {
-        Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName $displayName -Value 'Disabled' -DryRun:$DryRun
-      }
-
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'ARP Offload' -Value 'Disabled' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'NS Offload' -Value 'Disabled' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Wake on Magic Packet' -Value 'Disabled' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Wake on pattern match' -Value 'Disabled' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'WOL & Shutdown Link Speed' -Value 'Disabled' -DryRun:$DryRun
-
-      # ITR is looked up via RegistryKeyword inside Set-UjNicAdvancedPropertyIfSupported; no pre-check needed
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'ITR' -Value '0' -DryRun:$DryRun
-
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Receive Buffers' -Value '256' -DryRun:$DryRun
-      Set-UjNicAdvancedPropertyIfSupported -Name $nic.Name -DisplayName 'Transmit Buffers' -Value '256' -DryRun:$DryRun
     }
   }
 }

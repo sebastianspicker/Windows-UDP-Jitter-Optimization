@@ -11,7 +11,7 @@
   Apply, Backup, Restore, or ResetDefaults.
 
 .PARAMETER Preset
-  Risk level 1 (Conservative), 2 (Medium), or 3 (Higher risk). Only used when Action is Apply.
+  Risk level 1 (Safe), 2 (Moderate), or 3 (Aggressive). Only used when Action is Apply.
 
 .PARAMETER AllowUnsafeBackupFolder
   Allows backup/restore/apply paths under sensitive system directories.
@@ -62,6 +62,8 @@ param(
   [switch]$DisableGameDvr,
 
   [switch]$DisableUro,
+
+  [switch]$IncludeExperimental,
 
   [string]$BackupFolder,
 

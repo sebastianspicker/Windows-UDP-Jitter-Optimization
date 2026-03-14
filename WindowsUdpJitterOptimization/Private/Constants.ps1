@@ -65,11 +65,33 @@ $script:UjNicKeywordMap = @{
   'WOL & Shutdown Link Speed'      = '*WakeOnLink'
 }
 
-# Keywords for reset operations (locale-independent)
-$script:UjNicResetKeywords = @(
-  '*EEE', '*InterruptModeration', '*FlowControl', '*GreenEthernet', '*PowerSavingMode',
-  '*JumboPacket', '*LsoV2IPv4', '*LsoV2IPv6', '*UDPChecksumOffloadIPv4', '*UDPChecksumOffloadIPv6',
-  '*TCPChecksumOffloadIPv4', '*TCPChecksumOffloadIPv6', '*ARPOffload', '*NSOffload',
-  '*WakeOnMagicPacket', '*WakeOnPattern', '*WakeOnLink', '*InterruptModerationRate',
+# NIC keywords classified by evidence strength and impact tier.
+# Tier 1 (Safe): Zero-risk, no tradeoffs. Power-saving disables.
+$script:UjNicKeywordsTier1 = @('*EEE', '*GreenEthernet', '*PowerSavingMode')
+
+# Tier 2 (Moderate): Proven with small documented tradeoffs (slightly higher CPU).
+$script:UjNicKeywordsTier2 = @('*InterruptModeration', '*FlowControl')
+
+# Tier 3 (Aggressive): Maximum UDP optimization, measurable tradeoffs.
+$script:UjNicKeywordsTier3 = @('*UDPChecksumOffloadIPv4', '*UDPChecksumOffloadIPv6', '*InterruptModerationRate')
+
+# Experimental: TCP-only, WoL/sleep-only, or unproven settings.
+# These have zero proven impact on UDP jitter during active use.
+$script:UjNicKeywordsExperimental = @(
+  '*TCPChecksumOffloadIPv4', '*TCPChecksumOffloadIPv6',
+  '*LsoV2IPv4', '*LsoV2IPv6',
+  '*ARPOffload', '*NSOffload',
+  '*WakeOnMagicPacket', '*WakeOnPattern', '*WakeOnLink',
+  '*JumboPacket',
   '*ReceiveBuffers', '*TransmitBuffers'
 )
+
+# Reset list is the union of all tiers (backward compatible)
+$script:UjNicResetKeywords = $script:UjNicKeywordsTier1 + $script:UjNicKeywordsTier2 +
+  $script:UjNicKeywordsTier3 + $script:UjNicKeywordsExperimental
+
+# Reverse lookup: keyword -> display name (for logging)
+$script:UjNicKeywordReverseMap = @{}
+foreach ($entry in $script:UjNicKeywordMap.GetEnumerator()) {
+  $script:UjNicKeywordReverseMap[$entry.Value] = $entry.Key
+}

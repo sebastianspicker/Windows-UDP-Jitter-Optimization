@@ -66,8 +66,8 @@ function Update-UjRunButtonState {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'UDP Jitter Optimization'
-$form.Size = New-Object System.Drawing.Size(620, 620)
-$form.MinimumSize = New-Object System.Drawing.Size(600, 520)
+$form.Size = New-Object System.Drawing.Size(620, 648)
+$form.MinimumSize = New-Object System.Drawing.Size(600, 548)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'Sizable'
 
@@ -100,7 +100,7 @@ $comboPreset = New-Object System.Windows.Forms.ComboBox
 $comboPreset.Location = New-Object System.Drawing.Point(100, $y - 2)
 $comboPreset.Size = New-Object System.Drawing.Size(180, 24)
 $comboPreset.DropDownStyle = 'DropDownList'
-@('1 (Conservative)', '2 (Medium)', '3 (Higher Risk)') | ForEach-Object { [void]$comboPreset.Items.Add($_) }
+@('1 (Safe)', '2 (Moderate)', '3 (Aggressive)') | ForEach-Object { [void]$comboPreset.Items.Add($_) }
 $comboPreset.SelectedIndex = 0
 $form.Controls.Add($comboPreset)
 $y += $rowHeight
@@ -194,6 +194,14 @@ $chkDisableUro.Location = New-Object System.Drawing.Point(388, $y)
 $chkDisableUro.Size = New-Object System.Drawing.Size(120, 22)
 $chkDisableUro.Text = 'Disable URO'
 $form.Controls.Add($chkDisableUro)
+$y += $rowHeight
+
+# Experimental checkbox
+$chkExperimental = New-Object System.Windows.Forms.CheckBox
+$chkExperimental.Location = New-Object System.Drawing.Point(12, $y)
+$chkExperimental.Size = New-Object System.Drawing.Size(400, 22)
+$chkExperimental.Text = 'Include experimental (TCP/WoL/unproven settings)'
+$form.Controls.Add($chkExperimental)
 $y += $rowHeight
 
 # Include app-based QoS policies
@@ -366,9 +374,10 @@ function Resolve-UjGuiRunParameter {
     CS2PortStart       = $cs2Start
     CS2PortEnd         = $cs2End
     PowerPlan          = $comboPowerPlan.SelectedItem.ToString()
-    DisableGameDvr     = $chkDisableGameDvr.Checked
-    DisableUro         = $chkDisableUro.Checked
-    DryRun             = $chkDryRun.Checked
+    DisableGameDvr        = $chkDisableGameDvr.Checked
+    DisableUro            = $chkDisableUro.Checked
+    IncludeExperimental   = $chkExperimental.Checked
+    DryRun                = $chkDryRun.Checked
     Confirm            = $false
     IncludeAppPolicies = $chkIncludeAppPolicies.Checked
     AppPaths           = $appPaths
@@ -391,7 +400,7 @@ function Get-UjControlState {
   $isApply = $action -eq 'Apply'
   $needsBackupFolder = $action -in @('Apply', 'Backup', 'Restore')
 
-  foreach ($control in @($lblPreset, $comboPreset, $lblPorts, $txtTeamSpeakPort, $lblCS2, $txtCS2Start, $txtCS2End, $lblPower, $comboPowerPlan, $lblAfd, $txtAfdThreshold, $chkDisableGameDvr, $chkDisableUro, $chkIncludeAppPolicies)) {
+  foreach ($control in @($lblPreset, $comboPreset, $lblPorts, $txtTeamSpeakPort, $lblCS2, $txtCS2Start, $txtCS2End, $lblPower, $comboPowerPlan, $lblAfd, $txtAfdThreshold, $chkDisableGameDvr, $chkDisableUro, $chkExperimental, $chkIncludeAppPolicies)) {
     $control.Enabled = $isApply
   }
 

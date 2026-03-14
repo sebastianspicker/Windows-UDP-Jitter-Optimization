@@ -1,4 +1,35 @@
-function Set-UjMmcssAudioSafety {
+function Set-UjSystemResponsiveness {
+  [CmdletBinding(SupportsShouldProcess = $true)]
+  [OutputType([void])]
+  param(
+    [Parameter(Mandatory)]
+    [ValidateSet(1, 2, 3)]
+    [int]$Preset,
+
+    [Parameter()]
+    [switch]$DryRun
+  )
+
+  $value = switch ($Preset) {
+    1 { 20 }
+    2 { 10 }
+    3 { 0 }
+  }
+
+  $mm = $script:UjRegistryPathSystemProfile
+  if ($DryRun) {
+    Write-UjInformation -Message ("[DryRun] SystemResponsiveness={0}" -f $value)
+    return
+  }
+
+  if (-not $PSCmdlet.ShouldProcess($mm, ("Set SystemResponsiveness to {0}" -f $value))) {
+    return
+  }
+
+  Set-UjRegistryValue -Key $mm -Name 'SystemResponsiveness' -Type DWord -Value $value -Confirm:$false
+}
+
+function Set-UjMmcssAudioTaskTuning {
   [CmdletBinding(SupportsShouldProcess = $true)]
   [OutputType([void])]
   param(
@@ -7,7 +38,7 @@ function Set-UjMmcssAudioSafety {
   )
 
   if ($DryRun) {
-    Write-UjInformation -Message '[DryRun] Ensure MMCSS audio safety registry values.'
+    Write-UjInformation -Message '[DryRun] Ensure MMCSS audio task registry values (experimental).'
     return
   }
 
@@ -23,7 +54,6 @@ function Set-UjMmcssAudioSafety {
     New-Item -Path $audio -Force | Out-Null
   }
 
-  Set-UjRegistryValue -Key $mm -Name 'SystemResponsiveness' -Type DWord -Value 20
   Set-UjRegistryValue -Key $audio -Name 'Priority' -Type DWord -Value 6
   Set-UjRegistryValue -Key $audio -Name 'BackgroundOnly' -Type DWord -Value 0
   Set-UjRegistryValue -Key $audio -Name 'Clock Rate' -Type DWord -Value 10000
@@ -119,33 +149,24 @@ function Set-UjAfdFastSendDatagramThreshold {
   Write-UjInformation -Message ("AFD FastSendDatagramThreshold set to {0} (reboot recommended)." -f $AfdThreshold)
 }
 
-function Set-UjUndocumentedNetworkMmcssTuning {
+function Set-UjNetworkThrottlingIndex {
   [CmdletBinding(SupportsShouldProcess = $true)]
   [OutputType([void])]
   param(
-    [Parameter(Mandatory)]
-    [ValidateSet(1, 2, 3)]
-    [int]$Preset,
-
     [Parameter()]
     [switch]$DryRun
   )
 
-  if ($Preset -lt 3) {
-    return
-  }
-
   $mm = $script:UjRegistryPathSystemProfile
   if ($DryRun) {
-    Write-UjInformation -Message '[DryRun] SystemResponsiveness=0; NetworkThrottlingIndex=FFFFFFFF'
+    Write-UjInformation -Message '[DryRun] NetworkThrottlingIndex=FFFFFFFF'
     return
   }
 
-  if (-not $PSCmdlet.ShouldProcess($mm, 'Set SystemResponsiveness=0 and NetworkThrottlingIndex=FFFFFFFF')) {
+  if (-not $PSCmdlet.ShouldProcess($mm, 'Set NetworkThrottlingIndex=FFFFFFFF')) {
     return
   }
 
-  Set-UjRegistryValue -Key $mm -Name 'SystemResponsiveness' -Type DWord -Value 0 -Confirm:$false
   Set-UjRegistryValue -Key $mm -Name 'NetworkThrottlingIndex' -Type DWord -Value 0xFFFFFFFF -Confirm:$false
 }
 

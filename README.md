@@ -5,7 +5,7 @@ PowerShell module and scripts to reduce UDP jitter on Windows endpoints with saf
 ## Highlights
 
 - Endpoint QoS DSCP marking (`EF=46`) for TeamSpeak/CS2 ports and optional app policies.
-- Three presets (`1=Conservative`, `2=Medium`, `3=Higher risk`) with explicit trade-offs.
+- Three presets (`1=Safe`, `2=Moderate`, `3=Aggressive`) with evidence-based setting classification.
 - Full backup/restore workflow for registry, QoS, NIC advanced properties, RSC, and power plan.
 - CLI and WinForms GUI.
 
@@ -73,6 +73,7 @@ Invoke-UdpJitterOptimization -Action Restore -PassThru
 - `-AfdThreshold`
 - `-PowerPlan`: `None`, `HighPerformance`, `Ultimate`
 - `-DisableGameDvr`, `-DisableUro`
+- `-IncludeExperimental`: Apply TCP-only, WoL-only, and unproven settings alongside any preset.
 - `-BackupFolder`
 - `-AllowUnsafeBackupFolder` (override safety block for system paths)
 - `-DryRun`

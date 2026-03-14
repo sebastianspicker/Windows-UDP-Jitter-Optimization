@@ -74,6 +74,65 @@ Module load order is deterministic:
 2. Ordered private scripts (`Logging`, `Filesystem`, `Registry`, `Platform`, `Qos`, `Nic`, `Actions.*`)
 3. Ordered public scripts (`Get-UjDefaultBackupFolder`, `Invoke-UdpJitterOptimization`)
 
+## Setting Classifications
+
+Settings are classified by evidence strength into tiers:
+
+### Tier 1 - Safe (Conservative)
+
+Zero-risk settings with no measurable tradeoffs.
+
+| Setting | Mechanism | Impact |
+|---------|-----------|--------|
+| QoS DSCP marking (EF=46) | `New-NetQosPolicy` | HIGH (network-dependent) |
+| "Do not use NLA" = 1 | Registry | Enabler for DSCP |
+| Disable EEE (`*EEE`) | NIC property | MEDIUM - eliminates link wake latency |
+| Disable Green Ethernet (`*GreenEthernet`) | NIC property | LOW-MEDIUM - vendor-specific EEE |
+| Disable Power Saving Mode (`*PowerSavingMode`) | NIC property | LOW-MEDIUM - driver power management |
+| Start MMCSS service | Service | Enabler for throttling settings |
+| SystemResponsiveness = 20 | Registry | LOW - conservative MMCSS tuning |
+
+### Tier 2 - Moderate
+
+Proven settings with small, documented tradeoffs (slightly higher CPU load).
+
+| Setting | Mechanism | Impact | Tradeoff |
+|---------|-----------|--------|----------|
+| Disable Interrupt Moderation (`*InterruptModeration`) | NIC property | HIGH | +1-5% CPU interrupt load |
+| Disable Flow Control (`*FlowControl`) | NIC property | MEDIUM | Rare packet loss on congested links |
+| AFD FastSendDatagramThreshold = 1500 | Registry | MEDIUM | None |
+| NetworkThrottlingIndex = 0xFFFFFFFF | Registry | MEDIUM-HIGH | Slightly more CPU during multimedia |
+| SystemResponsiveness = 10 | Registry | LOW-MEDIUM | Less CPU for background tasks |
+
+### Tier 3 - Aggressive
+
+Maximum UDP optimization with measurable tradeoffs.
+
+| Setting | Mechanism | Impact | Tradeoff |
+|---------|-----------|--------|----------|
+| Disable URO | netsh | HIGH | Reduced bulk UDP throughput |
+| Disable UDP Checksum Offload | NIC property | LOW-MEDIUM | +1-3% CPU |
+| InterruptModerationRate = 0 | NIC property | LOW | Belt-and-suspenders for IM |
+| SystemResponsiveness = 0 | Registry | LOW-MEDIUM | Can starve background processes |
+
+### Experimental (`-IncludeExperimental`)
+
+TCP-only, WoL/sleep-only, or unproven settings. Applied on top of any preset.
+
+| Setting | Why experimental |
+|---------|-----------------|
+| TCP Checksum Offload disable | TCP-only, zero UDP effect |
+| LSO v2 disable | TCP segmentation, zero UDP effect |
+| RSC disable | TCP-only coalescing |
+| ARP Offload disable | Sleep-only, no active-use effect |
+| NS Offload disable | Sleep-only, no active-use effect |
+| Wake on Magic Packet disable | Sleep-only |
+| Wake on Pattern Match disable | Sleep-only |
+| WOL & Shutdown Link Speed disable | Sleep/shutdown-only |
+| Jumbo Packet disable | Usually already disabled (no-op) |
+| Receive/Transmit Buffers = 256 | Potentially counterproductive |
+| MMCSS Audio Task tuning | Audio scheduling, not UDP network |
+
 ## Public Interfaces and Parameters
 
 ### Exported functions
@@ -91,6 +150,7 @@ Module load order is deterministic:
 - `-AfdThreshold`
 - `-PowerPlan`: `None | HighPerformance | Ultimate`
 - `-DisableGameDvr`, `-DisableUro`
+- `-IncludeExperimental`: Apply TCP-only, WoL-only, and unproven settings on top of any preset.
 - `-BackupFolder`
 - `-AllowUnsafeBackupFolder`
 - `-DryRun`
@@ -103,6 +163,7 @@ Returned object:
 
 - `Action` (string)
 - `Preset` (int or null)
+- `IncludeExperimental` (bool or null)
 - `DryRun` (bool)
 - `Success` (bool)
 - `BackupFolder` (string or null)
@@ -117,8 +178,15 @@ Returned object:
 1. Validate input and admin context (unless `-SkipAdminCheck`)
 2. Validate backup path safety (unless `-AllowUnsafeBackupFolder`)
 3. Backup state
-4. Apply MMCSS/audio/QoS/NIC/AFD/MMCSS-network/URO/power/GameDVR changes
-5. Print summary
+4. Start MMCSS service, set SystemResponsiveness (preset-dependent: 20/10/0)
+5. Enable local QoS marking, create DSCP policies
+6. Apply NIC configuration (tiered keywords + optional experimental)
+7. Apply AFD threshold (Preset 2+), NetworkThrottlingIndex (Preset 2+)
+8. Disable URO (Preset 3 or `-DisableUro`)
+9. Set power plan (if `-PowerPlan`)
+10. Apply MMCSS Audio Task tuning (if `-IncludeExperimental`)
+11. Disable Game DVR (if `-DisableGameDvr`)
+12. Print summary
 
 ### Backup
 
