@@ -1,3 +1,18 @@
+# ⚠️ This repository has been deprecated
+
+**This project is no longer maintained.** All settings from this repo have been reviewed, and the evidence-based ones have been incorporated into the successor project:
+
+### ➡️ [cs2-opt](https://github.com/sebastianspicker/cs2-opt)
+
+The new repo provides a significantly more comprehensive, empirically validated optimization suite — including NIC tuning, interrupt affinity, DSCP/QoS, power management, and much more — with a modern GUI and full backup/restore workflow.
+
+Several settings from this repo (e.g. `NetworkThrottlingIndex=0xFFFFFFFF`, `InterruptModeration=Disabled`, UDP checksum offload disable) have been **empirically debunked** in the new project's research and are intentionally excluded.
+
+---
+
+<details>
+<summary>Original README (archived)</summary>
+
 # UDP Jitter Optimization for Windows 10/11
 
 PowerShell module and scripts to reduce UDP jitter on Windows endpoints with safety-first defaults, backup/restore, and preset-based tuning.
@@ -95,3 +110,5 @@ Runs PSScriptAnalyzer and Pester locally (same checks as CI).
 
 Do not share sensitive local data from backups or logs in public issues.
 See [SECURITY.md](SECURITY.md).
+
+</details>
