@@ -1,12 +1,12 @@
 # ⚠️ This repository has been deprecated
 
-**This project is no longer maintained.** All settings from this repo have been reviewed, and the evidence-based ones have been incorporated into the successor project:
+This project is no longer maintained. All settings from this repo have been reviewed, and the evidence-based ones have been incorporated into the successor project:
 
 ### ➡️ [cs2-opt](https://github.com/sebastianspicker/cs2-opt)
 
-The new repo provides a significantly more comprehensive, empirically validated optimization suite — including NIC tuning, interrupt affinity, DSCP/QoS, power management, and much more — with a modern GUI and full backup/restore workflow.
+The new repo covers NIC tuning, interrupt affinity, DSCP/QoS, power management, and more — with a modern GUI and full backup/restore workflow, grounded in empirical testing.
 
-Several settings from this repo (e.g. `NetworkThrottlingIndex=0xFFFFFFFF`, `InterruptModeration=Disabled`, UDP checksum offload disable) have been **empirically debunked** in the new project's research and are intentionally excluded.
+Several settings from this repo (e.g. `NetworkThrottlingIndex=0xFFFFFFFF`, `InterruptModeration=Disabled`, UDP checksum offload disable) were found to have no measurable benefit or adverse effects in the new project's research, and are intentionally excluded.
 
 ---
 

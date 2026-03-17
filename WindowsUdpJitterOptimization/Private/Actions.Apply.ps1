@@ -54,11 +54,11 @@ function Set-UjMmcssAudioTaskTuning {
     New-Item -Path $audio -Force | Out-Null
   }
 
-  Set-UjRegistryValue -Key $audio -Name 'Priority' -Type DWord -Value 6
-  Set-UjRegistryValue -Key $audio -Name 'BackgroundOnly' -Type DWord -Value 0
-  Set-UjRegistryValue -Key $audio -Name 'Clock Rate' -Type DWord -Value 10000
-  Set-UjRegistryValue -Key $audio -Name 'SchedulingCategory' -Type String -Value 'High'
-  Set-UjRegistryValue -Key $audio -Name 'SFIOPriority' -Type String -Value 'High'
+  Set-UjRegistryValue -Key $audio -Name 'Priority' -Type DWord -Value 6 -Confirm:$false
+  Set-UjRegistryValue -Key $audio -Name 'BackgroundOnly' -Type DWord -Value 0 -Confirm:$false
+  Set-UjRegistryValue -Key $audio -Name 'Clock Rate' -Type DWord -Value 10000 -Confirm:$false
+  Set-UjRegistryValue -Key $audio -Name 'SchedulingCategory' -Type String -Value 'High' -Confirm:$false
+  Set-UjRegistryValue -Key $audio -Name 'SFIOPriority' -Type String -Value 'High' -Confirm:$false
 }
 
 function Start-UjAudioService {
@@ -112,7 +112,7 @@ function Enable-UjLocalQosMarking {
     New-Item -Path $qos -Force | Out-Null
   }
 
-  Set-UjRegistryValue -Key $qos -Name 'Do not use NLA' -Type String -Value '1'
+  Set-UjRegistryValue -Key $qos -Name 'Do not use NLA' -Type String -Value '1' -Confirm:$false
 }
 
 function Set-UjAfdFastSendDatagramThreshold {
@@ -287,7 +287,7 @@ function Show-UjSummary {
   try {
     $managed = Get-UjManagedQosPolicy
     if ($managed) {
-      $managed | Sort-Object -Property Name | Select-Object Name, DSCPAction, IPPortMatchCondition, AppPathNameMatchCondition | Format-Table -AutoSize
+      Write-UjInformation -Message ($managed | Sort-Object -Property Name | Select-Object Name, DSCPAction, IPPortMatchCondition, AppPathNameMatchCondition | Format-Table -AutoSize | Out-String)
     } else {
       Write-UjInformation -Message '  No active managed QoS policies.'
     }
@@ -302,7 +302,7 @@ function Show-UjSummary {
         Where-Object { $_.DisplayName -match 'Energy|Interrupt|Flow|Offload|Large Send|Jumbo|Wake|Power|Green|NS|ARP|ITR|Buffer' }
       if ($props) {
         Write-UjInformation -Message ("  Adapter: {0}" -f $nic.Name)
-        $props | Sort-Object -Property DisplayName | Select-Object DisplayName, DisplayValue | Format-Table -AutoSize
+        Write-UjInformation -Message ($props | Sort-Object -Property DisplayName | Select-Object DisplayName, DisplayValue | Format-Table -AutoSize | Out-String)
       }
     }
   } catch {

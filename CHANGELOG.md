@@ -76,5 +76,5 @@ Reset (`-Action ResetDefaults`) continues to reset ALL settings regardless of wh
 - Restore summary now exposes full per-component status instead of registry-only output.
 - Backup folder duplication removed from CLI default parameter expression.
 - Dry-run Apply path no longer emits an empty information message.
-- Backup folder unsafe-path detection hardened to check canonical sensitive roots (`Windows`, `System32`, `Program Files`) more robustly.
+- Backup folder unsafe-path detection now checks both raw and resolved canonical paths against sensitive roots (`Windows`, `System32`, `Program Files`).
 - GUI run action now has explicit reentry protection to avoid accidental double-execution on rapid clicks.

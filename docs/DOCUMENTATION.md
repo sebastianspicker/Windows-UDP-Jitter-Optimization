@@ -1,6 +1,6 @@
 # Windows UDP Jitter Optimization - Technical Documentation
 
-Comprehensive technical reference for the module, CLI wrapper, and GUI.
+Technical reference for the module, CLI wrapper, and GUI.
 
 ## Contents
 
@@ -226,7 +226,7 @@ Backup artifacts:
 
 Managed QoS scope:
 
-- Policies with name prefix `QoS_` are considered managed.
+- Only policies whose names start with `QoS_UDP_TS_`, `QoS_UDP_CS2_`, or `QoS_APP_` are treated as module-owned. Policies with other names — including other `QoS_` prefixes — are never touched.
 
 ## Known Limitations
 

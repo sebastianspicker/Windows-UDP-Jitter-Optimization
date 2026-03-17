@@ -297,14 +297,14 @@ function Restore-UjNicFromBackup {
     foreach ($adapter in $adapters) {
       foreach ($property in ($data | Where-Object { $_.Adapter -eq $adapter })) {
         try {
-          if ($property.PSObject.Properties.Name -contains 'DisplayName' -and [string]::IsNullOrEmpty($property.DisplayName) -eq $false -and $property.PSObject.Properties.Name -contains 'DisplayValue') {
+          if (-not [string]::IsNullOrEmpty($property.DisplayName)) {
             if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property: {0}" -f $property.DisplayName))) {
               $didWork = $true
               Set-NetAdapterAdvancedProperty -Name $adapter -DisplayName $property.DisplayName -DisplayValue $property.DisplayValue -NoRestart -ErrorAction Stop | Out-Null
             }
             continue
           }
-          if ($property.RegistryKeyword -and [string]::IsNullOrEmpty($property.RegistryKeyword) -eq $false -and [string]::IsNullOrEmpty($property.RegistryValue) -eq $false) {
+          if (-not [string]::IsNullOrEmpty($property.RegistryKeyword) -and -not [string]::IsNullOrEmpty($property.RegistryValue)) {
             if ($PSCmdlet.ShouldProcess($adapter, ("Restore NIC advanced property keyword: {0}" -f $property.RegistryKeyword))) {
               $didWork = $true
               Set-NetAdapterAdvancedProperty -Name $adapter -RegistryKeyword $property.RegistryKeyword -RegistryValue $property.RegistryValue -NoRestart -ErrorAction Stop | Out-Null

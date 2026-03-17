@@ -1,6 +1,6 @@
 function Get-UjManagedQosPolicy {
   [CmdletBinding()]
-  [OutputType([object])]
+  [OutputType('Microsoft.Management.Infrastructure.CimInstance')]
   param()
 
   try {
@@ -133,7 +133,7 @@ function New-UjDscpPolicyByApp {
     }
 
     try {
-      Remove-NetQosPolicy -Name $existing.Name -Confirm:$false | Out-Null
+      Remove-NetQosPolicy -Name $existing.Name -Confirm:$false -ErrorAction Stop | Out-Null
     } catch {
       Write-Verbose -Message ("Failed to remove existing QoS policy: {0}" -f $existing.Name)
     }
